@@ -1,0 +1,57 @@
+#!/bin/bash
+# =============================================================================
+# LSF submission script for scripts/gridSearchGraphER.R
+# =============================================================================
+# Runs the E[R] grid search across MULTIPLE CORES over MULTIPLE NODES.
+# The R script auto-detects the LSF allocation via parallelly::availableWorkers()
+# (reads LSB_MCPU_HOSTS / LSB_HOSTS) and spawns a PSOCK cluster spanning all
+# allocated cores on every node.
+#
+# Submit with:   bsub < bsub/gridSearchGraphER.bsub
+# Edit the marginal powers (the positional args) and resources as needed.
+# =============================================================================
+
+#BSUB -J gogtER_k4
+#BSUB -n 64                       # total slots (cores) requested across nodes
+#BSUB -R "span[ptile=16]"         # 16 cores/node -> 64/16 = 4 nodes
+#BSUB -R "rusage[mem=4000]"       # MB per slot; raise if graphs/k are larger
+#BSUB -q normal                   # <-- set to your queue
+#BSUB -W 12:00                    # wall-clock limit HH:MM (k=4 grid ~4-5 h on 64 cores)
+#BSUB -o logs/gogtER_k4.%J.out
+#BSUB -e logs/gogtER_k4.%J.err
+
+set -euo pipefail
+
+# --- Environment (adjust to your site) ---------------------------------------
+# Load the R module/toolchain that provides graphicalMCP + parallelly on ALL nodes.
+module load R 2>/dev/null || true
+
+cd "${LS_SUBCWD:-$PWD}"
+mkdir -p logs results
+
+# The R script resolves R/ relative to its own location, so it runs from any cwd.
+# Set GOGT_ROOT explicitly if you invoke it through a wrapper that hides --file=.
+export GOGT_ROOT="${GOGT_ROOT:-$PWD}"
+
+# --- Run ---------------------------------------------------------------------
+# Positional args = marginal power per hypothesis (their count defines k);
+# key=value = optional overrides.
+# k = 4 with w_step=0.1 / g_step=0.25 -> 286 weight vectors x 50,625 transition
+# matrices = 14,478,750 candidates (~277 core-hours at sim_n=10000).
+Rscript scripts/gridSearchGraphER.R 0.90 0.80 0.70 0.60 \
+  w_step=0.1 g_step=0.25 sim_n=10000 top_n=50 \
+  allow_large_k=TRUE out_dir=results
+
+# Notes:
+# - Multi-node PSOCK workers are launched over ssh by default. If passwordless
+#   ssh between compute nodes is blocked at your site, use LSF's launcher:
+#       export PARALLELLY_MAKENODEPSOCK_RSHCMD=blaunch
+#   before the Rscript call.
+# - Workers connect back to the master node directly (ssh reverse tunnel off).
+#   The tunnel would make every worker on a node bind the same listen port, so
+#   all but the first fail with "remote port forwarding failed for listen port"
+#   and the job hangs. If the master node is unreachable from the compute nodes
+#   (firewall), request 1 core per node and set:
+#       export GRIDSEARCH_REVTUNNEL=TRUE
+# - graphicalMCP and parallelly must be installed in a library visible from
+#   every compute node (a shared/network R library path).
