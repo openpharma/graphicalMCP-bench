@@ -1,24 +1,26 @@
 #!/bin/bash
 # =============================================================================
-# LSF submission script for scripts/gridSearchGraphER.R
+# LSF submission script for scripts/gridSearchGraph.R
 # =============================================================================
-# Runs the E[R] grid search across MULTIPLE CORES over MULTIPLE NODES.
+# Runs the grid search across MULTIPLE CORES over MULTIPLE NODES.
 # The R script auto-detects the LSF allocation via parallelly::availableWorkers()
 # (reads LSB_MCPU_HOSTS / LSB_HOSTS) and spawns a PSOCK cluster spanning all
 # allocated cores on every node.
 #
-# Submit with:   bsub < bsub/gridSearchGraphER.bsub
-# Edit the marginal powers (the positional args) and resources as needed.
+# Submit with:   bsub < bsub/gridSearchGraph.bsub                   # objective=er
+#                OBJECTIVE=dp bsub -J gogtDP_k4 < bsub/gridSearchGraph.bsub
+# OBJECTIVE is one of er | dp | cp. Edit the marginal powers (the positional
+# args) and resources as needed.
 # =============================================================================
 
-#BSUB -J gogtER_k4
+#BSUB -J gogt_k4
 #BSUB -n 64                       # total slots (cores) requested across nodes
 #BSUB -R "span[ptile=16]"         # 16 cores/node -> 64/16 = 4 nodes
 #BSUB -R "rusage[mem=4000]"       # MB per slot; raise if graphs/k are larger
 #BSUB -q normal                   # <-- set to your queue
 #BSUB -W 12:00                    # wall-clock limit HH:MM (k=4 grid ~4-5 h on 64 cores)
-#BSUB -o logs/gogtER_k4.%J.out
-#BSUB -e logs/gogtER_k4.%J.err
+#BSUB -o logs/gogt_k4.%J.out
+#BSUB -e logs/gogt_k4.%J.err
 
 set -euo pipefail
 
@@ -33,12 +35,15 @@ mkdir -p logs results
 # Set GOGT_ROOT explicitly if you invoke it through a wrapper that hides --file=.
 export GOGT_ROOT="${GOGT_ROOT:-$PWD}"
 
+OBJECTIVE="${OBJECTIVE:-er}"
+
 # --- Run ---------------------------------------------------------------------
 # Positional args = marginal power per hypothesis (their count defines k);
 # key=value = optional overrides.
 # k = 4 with w_step=0.1 / g_step=0.25 -> 286 weight vectors x 50,625 transition
 # matrices = 14,478,750 candidates (~277 core-hours at sim_n=10000).
-Rscript scripts/gridSearchGraphER.R 0.90 0.80 0.70 0.60 \
+Rscript scripts/gridSearchGraph.R 0.90 0.80 0.70 0.60 \
+  objective="${OBJECTIVE}" \
   w_step=0.1 g_step=0.25 sim_n=10000 top_n=50 \
   allow_large_k=TRUE out_dir=results
 

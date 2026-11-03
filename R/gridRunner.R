@@ -1,8 +1,8 @@
 # =============================================================================
 # Grid-search runner: configuration, CLI parsing, verification, main loop
 # =============================================================================
-# Shared by scripts/gridSearchGraphER.R and scripts/gridSearchGraphDP.R. Each
-# script supplies a default config list and calls gogt_main() on it.
+# Used by scripts/gridSearchGraph.R, which supplies a default config list and
+# calls gogt_main() on it.
 #
 # DEPENDENCIES: R/rootPath.R, R/gridCore.R, R/utils.R, R/expectedRejections.R,
 # R/analyticDP.R.

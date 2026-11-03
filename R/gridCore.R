@@ -12,8 +12,7 @@
 # and a coarser step for the transition weights (g_step).
 #
 # Objectives are selected by key; see GOGT_OBJECTIVES below. Everything here is
-# objective-agnostic -- scripts/gridSearchGraphER.R and
-# scripts/gridSearchGraphDP.R are thin wrappers that pick one.
+# objective-agnostic -- scripts/gridSearchGraph.R picks one via objective=<key>.
 #
 # Derived from optimalMCP src/gridSearchGraphER.R.
 #

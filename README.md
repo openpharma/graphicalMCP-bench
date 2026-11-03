@@ -29,8 +29,7 @@ R/
   gridCore.R           simplex/transition grids, eval_graph, grid_search_k, reporting
   gridRunner.R         config, CLI parsing, G=0 verification, main loop
 scripts/
-  gridSearchGraphER.R  entry point, objective = er
-  gridSearchGraphDP.R  entry point, objective = dp
+  gridSearchGraph.R    entry point, objective chosen via objective=er|dp|cp
   compareExpectedRejections.R  analytic E[R] vs graphicalMCP simulation
 bsub/                  LSF submission scripts
 results/               default out_dir for RDS/CSV artifacts
@@ -51,33 +50,35 @@ On a cluster, those packages must be visible from **every** compute node.
 Scripts resolve `R/` relative to their own location, so any working directory works.
 
 ```sh
-# Smoke-sized run: 3 hypotheses, coarse grid, nothing written to disk
-Rscript scripts/gridSearchGraphER.R 0.9 0.8 0.7 \
+# Smoke-sized run: 3 hypotheses, coarse grid, nothing written to disk (objective=er default)
+Rscript scripts/gridSearchGraph.R 0.9 0.8 0.7 \
   w_step=0.25 g_step=0.5 sim_n=2000 top_n=5 save_results=FALSE
 
 # Default k=3 run, disjunctive power, results written to results/
-Rscript scripts/gridSearchGraphDP.R 0.90 0.80 0.70
+Rscript scripts/gridSearchGraph.R 0.90 0.80 0.70 objective=dp
 ```
 
 Positional numeric arguments are the marginal powers; their count defines `k`.
-`key=value` arguments override config fields: `sim_n`, `w_step`, `g_step`, `w_fixed`,
-`seed`, `top_n`, `out_dir`, `allow_large_k`, `max_candidates`, `save_full`,
-`save_results`, `max_workers`, `objective`.
+`objective=er|dp|cp` selects the metric (default `er`).
+`key=value` arguments override config fields: `objective`, `sim_n`, `w_step`, `g_step`,
+`w_fixed`, `seed`, `top_n`, `out_dir`, `allow_large_k`, `max_candidates`, `save_full`,
+`save_results`, `max_workers`.
 
 Pass `w_fixed=0.5,0.3,0.2` to skip the weight simplex and search only `G`; those runs
 are tagged `_fixedw` so they do not overwrite full-grid results.
 
-Defaults live in the `cfg <- gogt_config(...)` block of each script.
+Defaults live in the `cfg <- gogt_config(...)` block of the script.
 
 ### Cluster
 
 ```sh
-bsub < bsub/gridSearchGraphER.bsub
+bsub < bsub/gridSearchGraph.bsub                                # objective=er
+OBJECTIVE=dp bsub -J gogtDP_k4 < bsub/gridSearchGraph.bsub
 ```
 
 Workers are auto-detected via `parallelly::availableWorkers()`, which reads the LSF
 allocation (`LSB_MCPU_HOSTS` / `LSB_HOSTS`) and spans every allocated core on every
-node through a PSOCK cluster. See the comments in the `.bsub` files for the
+node through a PSOCK cluster. See the comments in the `.bsub` file for the
 `blaunch` and reverse-tunnel caveats.
 
 ## Feasibility
@@ -98,9 +99,9 @@ The candidate space is (# weight vectors) × (# transition matrices). With a fin
 
 Written to `out_dir` (default `results/`):
 
-- `gridSearch{ER,DP}_k<k>_mp<..>[_fixedw].rds` — the full `grid_search_k()` result
+- `gridSearch{ER,DP,CP}_k<k>_mp<..>[_fixedw].rds` — the full `grid_search_k()` result
   (top-N rows, each carrying its own `G` matrix).
-- `gridSearch{ER,DP}_k<k>_mp<..>[_fixedw]_top.csv` — flattened top-N table, `G`
+- `gridSearch{ER,DP,CP}_k<k>_mp<..>[_fixedw]_top.csv` — flattened top-N table, `G`
   serialized as a semicolon-delimited string.
 
 The tag encodes the marginal powers, e.g. `mp90_80_70`, so parallel runs do not clash.
