@@ -63,8 +63,10 @@ scripts/
   gridSearchGraph.R    entry point (all metrics in one run)
   compareExpectedRejections.R  analytic E[R] vs graphicalMCP simulation
 cluster/
-  lsf/submit.sh        LSF (bsub) submission
-  slurm/submit.sh      Slurm (sbatch) submission
+  lsf/submit.sh        LSF (bsub): one multi-node job
+  lsf/submit_array.sh  LSF job array: independent shards + merge job
+  slurm/submit.sh      Slurm (sbatch): one multi-node job
+  slurm/submit_array.sh  Slurm job array: independent shards + merge job
   slurm/srun-rsh.sh    starts remote PSOCK workers via srun instead of ssh
 results/               default out_dir for RDS/CSV artifacts
 ```
@@ -98,8 +100,8 @@ Rscript scripts/gridSearchGraph.R 0.90 0.80 0.70 metrics_file=my_metrics.R metri
 Positional numeric arguments are the marginal powers; their count defines `k`.
 `key=value` arguments override config fields: `sim_n`, `w_step`, `g_step`, `w_fixed`,
 `seed`, `top_n`, `out_dir`, `stem_prefix`, `allow_large_k`, `max_candidates`,
-`save_results`, `max_workers`, `metrics` (comma list), `metrics_file`. Unknown keys and
-unparsable values are errors.
+`save_results`, `max_workers`, `metrics` (comma list), `metrics_file`, `shard`,
+`merge_shards`. Unknown keys and unparsable values are errors.
 
 Pass `w_fixed=0.5,0.3,0.2` to skip the weight simplex and search only `G`; those runs
 are tagged `_fixedw` so they do not overwrite full-grid results. Use `stem_prefix` to
@@ -146,6 +148,24 @@ cluster. Remote workers are started with:
   Don't request `--cpus-per-task=1`: parallelly then counts one worker per node.
 
 See the notes at the end of each script for the reverse-tunnel caveat.
+
+### Job arrays
+
+Alternatively, split the search into independent shards (no communication between
+nodes, small jobs that queue easily, failed shards can be re-run alone):
+
+```sh
+bash cluster/slurm/submit_array.sh             # or cluster/lsf/submit_array.sh
+ARRAY=3,7 bash cluster/slurm/submit_array.sh   # re-run shards 3 and 7, then merge again
+```
+
+Each array task runs `gridSearchGraph.R ... shard=i/N`: it searches every `N`-th
+transition matrix starting at `i` on its own node's cores and writes
+`<out_dir>/shards/<stem>_shard<i>of<N>.rds`. A dependent job then runs
+`... merge_shards=N`, which combines the shards into `<out_dir>/<stem>.rds` /
+`_top.csv`. All shards use the same seed and hence the same p-values, so the merged
+result is identical to a single run. Set `N_SHARDS`, `CORES` and the partition/queue at
+the top of the script.
 
 ## Feasibility
 

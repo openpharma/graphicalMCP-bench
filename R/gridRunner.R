@@ -54,6 +54,12 @@ gogt_config <- function(...) {
     out_dir        = "results",   # relative paths resolve against the repo root
     stem_prefix    = "gridSearch",
 
+    ## -- Job arrays -----------------------------------------------------------
+    # c(i, N): search only shard i of N and write it to <out_dir>/shards/.
+    shard          = NULL,
+    # N: merge shards 1..N of the same run into the final result (no search).
+    merge_shards   = NULL,
+
     ## -- Safety gate for large k ----------------------------------------------
     allow_large_k  = FALSE,       # set TRUE only after coarsening the grid for k>3
     max_candidates = 1e8          # hard stop above this many candidates
@@ -118,9 +124,18 @@ gogt_parse_cli <- function(cfg, args = commandArgs(trailingOnly = TRUE)) {
     else if (key == "max_workers")    cfg$max_workers    <- conv(key, val, as.integer)
     else if (key == "metrics")        cfg$metric_select  <- split_csv(val)
     else if (key == "metrics_file")   cfg$metrics_file   <- val
+    else if (key == "merge_shards")   cfg$merge_shards   <- conv(key, val, as.integer)
+    else if (key == "shard") {
+      cfg$shard <- conv(key, strsplit(val, "/", fixed = TRUE)[[1]], as.integer)
+      if (length(cfg$shard) != 2L || cfg$shard[1] < 1L ||
+          cfg$shard[1] > cfg$shard[2]) {
+        stop("shard must be i/N with 1 <= i <= N; got '", val, "'")
+      }
+    }
     else stop("Unknown CLI option '", key, "'. Valid: sim_n, w_step, g_step, ",
               "w_fixed, seed, top_n, out_dir, stem_prefix, allow_large_k, ",
-              "max_candidates, save_results, max_workers, metrics, metrics_file.")
+              "max_candidates, save_results, max_workers, metrics, metrics_file, ",
+              "shard, merge_shards.")
   }
   cfg
 }
@@ -262,20 +277,49 @@ smoke_test <- function(alpha = 0.025, mp = c(0.8, 0.7, 0.9),
 }
 
 
+#' Path of shard i of n for a run stem.
+shard_file <- function(shard_dir, stem, i, n) {
+  file.path(shard_dir, sprintf("%s_shard%dof%d.rds", stem, i, n))
+}
+
+#' Load shards 1..n of a run and merge them into the full result.
+merge_shards <- function(shard_dir, stem, n) {
+  if (n < 1L) stop("merge_shards must be >= 1.")
+  files <- shard_file(shard_dir, stem, seq_len(n), n)
+  miss  <- which(!file.exists(files))
+  if (length(miss)) {
+    stop(sprintf("Missing %d of %d shard(s) for %s: %s", length(miss), n, stem,
+                 paste(miss, collapse = ", ")))
+  }
+  res <- merge_results(lapply(files, readRDS))
+  cat(sprintf("[k=%d] merged %d shards from %s\n", res$k, n, shard_dir))
+  res
+}
+
+
 #' Run the grid search for every k in the config.
 #'
+#' With cfg$shard set, only that shard is searched and written to
+#' <out_dir>/shards/; with cfg$merge_shards set, existing shards are merged
+#' instead of searching.
+#'
 #' @param cfg config list from gogt_config() / gogt_parse_cli()
-#' @return invisibly, a named list of grid_search_k() results per k
+#' @return invisibly, a named list of results per k
 gogt_main <- function(cfg) {
   gogt_check_deps()
   metrics <- gogt_resolve_metrics(cfg)
+  merging <- !is.null(cfg$merge_shards)
+  if (merging && !is.null(cfg$shard)) {
+    stop("Use either shard= or merge_shards=, not both.")
+  }
 
   out_dir <- cfg$out_dir
   if (!isTRUE(grepl("^(/|\\\\|[A-Za-z]:)", out_dir))) {
     out_dir <- file.path(gogt_root(), out_dir)
   }
+  shard_dir <- file.path(out_dir, "shards")
 
-  cl <- make_cluster(cfg$max_workers)
+  cl <- if (merging) NULL else make_cluster(cfg$max_workers)
   if (!is.null(cl)) on.exit(parallel::stopCluster(cl), add = TRUE)
 
   results <- list()
@@ -283,32 +327,52 @@ gogt_main <- function(cfg) {
     key <- paste0("k", k)
     mp  <- cfg$mp_list[[key]]
     if (is.null(mp)) stop("No marginal powers defined in mp_list for ", key, ".")
-    check_metrics(metrics, k)
 
-    verify_engine(k, cfg$alpha, mp)
-    p <- simulate_pvalues(k, cfg$alpha, mp, cfg$sim_n, cfg$seed)
-    verify_zero_transition(p, cfg$alpha, mp, metrics)
-
-    res <- grid_search_k(
-      p              = p,
-      alpha          = cfg$alpha,
-      w_step         = cfg$w_step,
-      g_step         = cfg$g_step,
-      top_n          = cfg$top_n,
-      cl             = cl,
-      allow_large_k  = cfg$allow_large_k,
-      max_candidates = cfg$max_candidates,
-      w_fixed        = cfg$w_fixed,
-      metrics        = metrics
-    )
-    results[[key]] <- res
-
-    # Tag output files with the marginal powers so array jobs don't clash.
+    # Tag output files with the marginal powers so runs don't clash.
     tag <- paste0("mp", paste(sprintf("%02d", round(mp * 100)), collapse = "_"))
     if (!is.null(cfg$w_fixed)) tag <- paste0(tag, "_fixedw")
+    stem <- gogt_stem(cfg$stem_prefix, k, tag)
+
+    if (merging) {
+      res <- merge_shards(shard_dir, stem, cfg$merge_shards)
+    } else {
+      check_metrics(metrics, k)
+      verify_engine(k, cfg$alpha, mp)
+      p <- simulate_pvalues(k, cfg$alpha, mp, cfg$sim_n, cfg$seed)
+      verify_zero_transition(p, cfg$alpha, mp, metrics)
+
+      res <- grid_search_k(
+        p              = p,
+        alpha          = cfg$alpha,
+        w_step         = cfg$w_step,
+        g_step         = cfg$g_step,
+        top_n          = cfg$top_n,
+        cl             = cl,
+        allow_large_k  = cfg$allow_large_k,
+        max_candidates = cfg$max_candidates,
+        w_fixed        = cfg$w_fixed,
+        metrics        = metrics,
+        shard          = cfg$shard
+      )
+      res$settings$mp   <- mp
+      res$settings$seed <- cfg$seed
+
+      if (!is.null(cfg$shard)) {
+        dir.create(shard_dir, recursive = TRUE, showWarnings = FALSE)
+        path <- shard_file(shard_dir, stem, cfg$shard[1], cfg$shard[2])
+        saveRDS(res, path)
+        cat(sprintf("[k=%d] shard %d/%d written to %s\n",
+                    k, cfg$shard[1], cfg$shard[2], path))
+        results[[key]] <- res
+        next
+      }
+    }
+    results[[key]] <- res
+
     if (cfg$save_results) {
-      stem <- save_best(res, out_dir, tag = tag, stem_prefix = cfg$stem_prefix)
-      cat(sprintf("[k=%d] results written to %s.rds / _top.csv\n", k, stem))
+      save_best(res, out_dir, stem)
+      cat(sprintf("[k=%d] results written to %s.rds / _top.csv\n",
+                  k, file.path(out_dir, stem)))
     }
     report_best(res)
   }

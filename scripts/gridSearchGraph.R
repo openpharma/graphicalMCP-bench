@@ -22,15 +22,16 @@
 #     Rscript scripts/gridSearchGraph.R 0.90 0.80 0.70 sim_n=10000
 #   Optional key=value overrides: sim_n, w_step, g_step, w_fixed, seed, top_n,
 #   out_dir, stem_prefix, allow_large_k, max_candidates, save_results,
-#   max_workers, metrics (comma list), metrics_file.
+#   max_workers, metrics (comma list), metrics_file, shard, merge_shards.
 #   Fixed weights (skip the w grid): w_fixed=0.5,0.3,0.2 -> only G is searched.
+#   Job arrays: shard=i/N searches one shard; merge_shards=N combines them.
 #   Works from any working directory.
 #
 # CLUSTER / MULTI-NODE
 #   Workers are auto-detected with parallelly::availableWorkers(), which reads
 #   the scheduler allocation (LSF, Slurm, ...) and spans ALL allocated nodes via
-#   a PSOCK cluster. Submit with `bash cluster/lsf/submit.sh` or
-#   `bash cluster/slurm/submit.sh`.
+#   a PSOCK cluster. Submit with `bash cluster/{lsf,slurm}/submit.sh`, or as a
+#   job array with `bash cluster/{lsf,slurm}/submit_array.sh`.
 #   Requires graphicalMCP + parallelly installed on every node.
 # =============================================================================
 

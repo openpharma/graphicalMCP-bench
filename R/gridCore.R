@@ -334,6 +334,48 @@ search_chunk <- function(task, W, p, alpha, metrics, top_n) {
   best
 }
 
+#' Weight and transition grids of a search.
+#'
+#' @param w_fixed optional numeric weight vector (length k, sums to 1). When
+#'   supplied the weight simplex is skipped and only G is searched.
+#' @return list(W = matrix with columns w1..wk, Glist = list of k x k matrices)
+build_grids <- function(k, w_step, g_step, w_fixed = NULL) {
+  if (is.null(w_fixed)) {
+    W <- simplex_grid(k, w_step)
+  } else {
+    if (length(w_fixed) != k) {
+      stop(sprintf("[k=%d] w_fixed must have length %d; got %d.",
+                   k, k, length(w_fixed)))
+    }
+    if (abs(sum(w_fixed) - 1) > 1e-9) {
+      stop(sprintf("[k=%d] w_fixed must sum to 1; got %g.", k, sum(w_fixed)))
+    }
+    W <- matrix(w_fixed, nrow = 1)
+  }
+  colnames(W) <- paste0("w", seq_len(k))
+  list(W = W, Glist = transition_grid(k, g_step))
+}
+
+#' Turn a candidate matrix (g_id, w_id, metrics) into the result table.
+#'
+#' @return data.frame: w1..wk, one column per metric, g_id, rank_<metric>
+#'   (NA outside that metric's top_n) and G; sorted by the first metric.
+assemble_best <- function(cand, W, Glist, metric_names, top_n) {
+  nm   <- metric_names
+  best <- data.frame(W[cand[, "w_id"], , drop = FALSE],
+                     cand[, nm, drop = FALSE],
+                     g_id = cand[, "g_id"], row.names = NULL)
+  for (x in nm) {
+    r <- head(rank_order(cand, x, nm), top_n)
+    best[[paste0("rank_", x)]] <- NA_integer_
+    best[[paste0("rank_", x)]][r] <- seq_along(r)
+  }
+  best$G <- Glist[best$g_id]
+  best <- best[rank_order(cand, nm[1], nm), ]
+  rownames(best) <- NULL
+  best
+}
+
 #' Grid-search the best graphs for every metric at once.
 #'
 #' Each candidate is evaluated once on the shared p-values and scored by all
@@ -343,55 +385,55 @@ search_chunk <- function(task, W, p, alpha, metrics, top_n) {
 #'
 #' @param p sim_n x k p-value matrix from simulate_pvalues() (k = ncol(p))
 #' @param metrics named list of function(R); see GOGT_METRICS
-#' @param w_fixed optional numeric weight vector (length k, sums to 1). When
-#'   supplied the weight simplex is skipped and only G is searched.
-#' @return list(best = data.frame, k, metrics = metric names, n_candidates).
-#'   best holds the union of the per-metric top_n graphs: weights w1..wk, one
-#'   column per metric, rank_<metric> (NA outside that metric's top_n), g_id
-#'   and the transition matrix G; sorted by the first metric.
+#' @param w_fixed optional fixed weight vector; see build_grids()
+#' @param shard optional c(i, N): search only every N-th transition matrix
+#'   starting at i (job arrays); combine shards with merge_results().
+#' @return list(best, k, metrics = metric names, n_candidates (evaluated here),
+#'   cand = candidate matrix, settings, shard); see assemble_best() for best.
 grid_search_k <- function(p, alpha, w_step, g_step, top_n, cl = NULL,
                           allow_large_k = FALSE, max_candidates = 1e8,
-                          w_fixed = NULL, metrics = GOGT_METRICS) {
+                          w_fixed = NULL, metrics = GOGT_METRICS,
+                          shard = NULL) {
   k <- ncol(p)
   check_metrics(metrics, k)
   nm <- names(metrics)
 
-  if (is.null(w_fixed)) {
-    W <- simplex_grid(k, w_step)        # weight vectors  (rows)
-  } else {
-    if (length(w_fixed) != k) {
-      stop(sprintf("[k=%d] w_fixed must have length %d; got %d.",
-                   k, k, length(w_fixed)))
-    }
-    if (abs(sum(w_fixed) - 1) > 1e-9) {
-      stop(sprintf("[k=%d] w_fixed must sum to 1; got %g.", k, sum(w_fixed)))
-    }
-    W <- matrix(w_fixed, nrow = 1)      # single fixed weight vector
+  grids <- build_grids(k, w_step, g_step, w_fixed)
+  W     <- grids$W
+  Glist <- grids$Glist
+  n_all <- nrow(W) * length(Glist)
+  if (!is.null(w_fixed)) {
     cat(sprintf("[k=%d] fixed weights supplied: %s (w grid skipped)\n",
                 k, paste(round(w_fixed, 4), collapse = ", ")))
   }
-  colnames(W) <- paste0("w", seq_len(k))
-  Glist <- transition_grid(k, g_step)   # transition matrices (list)
-  n_cand <- nrow(W) * length(Glist)
-
   cat(sprintf("[k=%d] weight vectors = %s, transition matrices = %s, candidates = %s\n",
               k, format(nrow(W), big.mark = ","),
               format(length(Glist), big.mark = ","),
-              format(n_cand, big.mark = ",")))
+              format(n_all, big.mark = ",")))
   cat(sprintf("[k=%d] metrics: %s (sim_n = %s)\n", k,
               paste(nm, collapse = ", "), format(nrow(p), big.mark = ",")))
 
-  if (n_cand > max_candidates && !allow_large_k) {
+  if (n_all > max_candidates && !allow_large_k) {
     stop(sprintf(
       "[k=%d] %s candidates exceeds max_candidates (%s). Coarsen w_step/g_step ",
-      k, format(n_cand, big.mark = ","), format(max_candidates, big.mark = ",")),
+      k, format(n_all, big.mark = ","), format(max_candidates, big.mark = ",")),
       "or set allow_large_k = TRUE.")
   }
 
+  g_ids <- seq_along(Glist)
+  if (!is.null(shard)) {
+    if (shard[2] > length(Glist)) {
+      stop(sprintf("[k=%d] %d shards exceed the %d transition matrices.",
+                   k, shard[2], length(Glist)))
+    }
+    g_ids <- seq(shard[1], length(Glist), by = shard[2])
+    cat(sprintf("[k=%d] shard %d/%d: %s transition matrices\n",
+                k, shard[1], shard[2], format(length(g_ids), big.mark = ",")))
+  }
+
   # One batch of transition matrices per worker.
-  n_tasks <- if (is.null(cl)) 1L else min(length(Glist), length(cl))
-  ids   <- split(seq_along(Glist),
-                 ceiling(seq_along(Glist) * n_tasks / length(Glist)))
+  n_tasks <- if (is.null(cl)) 1L else min(length(g_ids), length(cl))
+  ids   <- split(g_ids, ceiling(seq_along(g_ids) * n_tasks / length(g_ids)))
   tasks <- lapply(ids, function(i) list(g_id = i, G = Glist[i]))
 
   t0 <- Sys.time()
@@ -411,19 +453,34 @@ grid_search_k <- function(p, alpha, w_step, g_step, top_n, cl = NULL,
               as.numeric(difftime(Sys.time(), t0, units = "secs"))))
 
   cand <- top_union(do.call(rbind, parts), nm, top_n)
-  best <- data.frame(W[cand[, "w_id"], , drop = FALSE],
-                     cand[, nm, drop = FALSE],
-                     g_id = cand[, "g_id"], row.names = NULL)
-  for (x in nm) {
-    r <- head(rank_order(cand, x, nm), top_n)
-    best[[paste0("rank_", x)]] <- NA_integer_
-    best[[paste0("rank_", x)]][r] <- seq_along(r)
-  }
-  best$G <- Glist[best$g_id]
-  best <- best[rank_order(cand, nm[1], nm), ]
-  rownames(best) <- NULL
+  list(best = assemble_best(cand, W, Glist, nm, top_n), k = k, metrics = nm,
+       n_candidates = nrow(W) * length(g_ids), cand = cand,
+       settings = list(alpha = alpha, sim_n = nrow(p), w_step = w_step,
+                       g_step = g_step, w_fixed = w_fixed, top_n = top_n),
+       shard = shard)
+}
 
-  list(best = best, k = k, metrics = nm, n_candidates = n_cand)
+#' Combine the shard results of one search into the full result.
+#'
+#' Exact: each shard keeps its top_n per metric, so the union over shards
+#' contains the global top_n of every metric.
+#'
+#' @param parts list of grid_search_k() results with identical settings
+merge_results <- function(parts) {
+  s  <- parts[[1]]$settings
+  nm <- parts[[1]]$metrics
+  for (x in parts[-1]) {
+    if (!identical(x$settings, s) || !identical(x$metrics, nm)) {
+      stop("Shards were run with different settings or metrics; cannot merge.")
+    }
+  }
+  k     <- parts[[1]]$k
+  cand  <- top_union(do.call(rbind, lapply(parts, `[[`, "cand")), nm, s$top_n)
+  grids <- build_grids(k, s$w_step, s$g_step, s$w_fixed)
+  list(best = assemble_best(cand, grids$W, grids$Glist, nm, s$top_n), k = k,
+       metrics = nm,
+       n_candidates = sum(unlist(lapply(parts, `[[`, "n_candidates"))),
+       cand = cand, settings = s, shard = NULL)
 }
 
 
@@ -447,15 +504,19 @@ report_best <- function(res) {
   }
 }
 
-#' Write the result of a grid search to RDS + CSV.
+#' File stem of a run, e.g. "gridSearch_k3_mp90_80_70".
 #'
-#' @param res return value of grid_search_k()
-#' @param tag run tag appended to the stem (marginal powers, fixed-weight flag)
-#' @param stem_prefix file-name prefix
-save_best <- function(res, out_dir, tag = "", stem_prefix = "gridSearch") {
+#' @param tag run tag (marginal powers, fixed-weight flag)
+gogt_stem <- function(stem_prefix, k, tag = "") {
+  sprintf("%s_k%d%s", stem_prefix, k, if (nzchar(tag)) paste0("_", tag) else "")
+}
+
+#' Write the result of a grid search to <out_dir>/<stem>.rds and _top.csv.
+#'
+#' @param res return value of grid_search_k() / merge_results()
+#' @return the path stem, invisibly
+save_best <- function(res, out_dir, stem) {
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
-  stem <- sprintf("%s_k%d%s", stem_prefix, res$k,
-                  if (nzchar(tag)) paste0("_", tag) else "")
   saveRDS(res, file.path(out_dir, paste0(stem, ".rds")))
   flat <- res$best
   flat$G <- vapply(flat$G, function(G) paste(round(G, 4), collapse = ";"),

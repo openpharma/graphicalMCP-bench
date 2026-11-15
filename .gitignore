@@ -12,3 +12,6 @@ logs/
 # Large ad-hoc candidate dumps can be gigabytes.
 # The small top-N artifacts in results/ are committed on purpose.
 *_full.rds
+
+# Intermediate job-array shards (merged into results/ by merge_shards=N).
+results/shards/
