@@ -12,12 +12,15 @@
 #     bash cluster/slurm/submit_array.sh metrics_file=metrics/custom.R  # + custom metrics
 #     ARRAY=3,7 bash cluster/slurm/submit_array.sh                      # re-run shards 3, 7 + merge
 #     N_SHARDS=32 CORES=2 PARTITION=short bash cluster/slurm/submit_array.sh
+#     MAX_RUNNING=4 bash cluster/slurm/submit_array.sh                  # at most 4 tasks at once
 #
+# There is no node count: each task takes CORES cores on one node and Slurm
+# places the tasks; MAX_RUNNING caps how many run at the same time.
 # Positional numbers replace MP; key=value arguments override ARGS for both the
-# shards and the merge (last value wins; values must not contain spaces). Other
-# #SBATCH lines can be overridden with SBATCH_* environment variables. Shards go
-# to <out_dir>/shards/, the merged result to <out_dir>/ under the same name as a
-# single run.
+# shards and the merge (last value wins; values must not contain spaces). Time,
+# account, memory, ... can be overridden with SBATCH_* environment variables.
+# Shards go to <out_dir>/shards/, the merged result to <out_dir>/ under the same
+# name as a single run.
 # =============================================================================
 
 set -euo pipefail
@@ -29,8 +32,9 @@ ARGS="w_step=0.1 g_step=0.25 sim_n=10000 top_n=50 allow_large_k=TRUE out_dir=res
 # per shard. Re-runs must use the same N_SHARDS as the original submission.
 N_SHARDS="${N_SHARDS:-16}"
 CORES="${CORES:-4}"
-PARTITION="${PARTITION:-normal}"   # <-- your default partition
+PARTITION="${PARTITION:-}"         # empty = the cluster's default partition
 ARRAY="${ARRAY:-1-${N_SHARDS}}"
+MAX_RUNNING="${MAX_RUNNING:-}"     # empty = no limit
 source "$(dirname "${BASH_SOURCE[0]}")/../args.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -40,16 +44,15 @@ cd "$ROOT"
 # Slurm does not create the --output/--error directory.
 mkdir -p logs results
 
-ARRAY_ID=$(sbatch --parsable <<EOF
+ARRAY_ID=$(sbatch --parsable ${PARTITION:+--partition=$PARTITION} <<EOF
 #!/bin/bash
 #SBATCH --job-name=${NAME}
-#SBATCH --array=${ARRAY}
+#SBATCH --array=${ARRAY}${MAX_RUNNING:+%$MAX_RUNNING}
 # One node per task, local workers only; --cpus-per-task sets the worker count.
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=${CORES}
 #SBATCH --mem-per-cpu=4000
-#SBATCH --partition=${PARTITION}
 #SBATCH --time=01:00:00
 #SBATCH --output=logs/${NAME}.%A_%a.out
 #SBATCH --error=logs/${NAME}.%A_%a.err
@@ -64,12 +67,11 @@ EOF
 )
 ARRAY_ID="${ARRAY_ID%%;*}"
 
-MERGE_ID=$(sbatch --parsable --dependency=afterok:${ARRAY_ID} <<EOF
+MERGE_ID=$(sbatch --parsable ${PARTITION:+--partition=$PARTITION} --dependency=afterok:${ARRAY_ID} <<EOF
 #!/bin/bash
 #SBATCH --job-name=${NAME}_merge
 #SBATCH --ntasks=1
 #SBATCH --mem=4000
-#SBATCH --partition=${PARTITION}
 #SBATCH --time=00:30:00
 #SBATCH --output=logs/${NAME}_merge.%j.out
 #SBATCH --error=logs/${NAME}_merge.%j.err

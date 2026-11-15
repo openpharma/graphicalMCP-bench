@@ -7,11 +7,12 @@
 #     bash cluster/slurm/submit.sh 0.9 0.8 0.7 w_step=0.02        # marginal powers + overrides
 #     bash cluster/slurm/submit.sh metrics_file=metrics/custom.R  # + custom metrics
 #     PARTITION=short SBATCH_TIMELIMIT=02:00:00 bash cluster/slurm/submit.sh
+#     NODES=2 CORES=32 bash cluster/slurm/submit.sh               # 2 nodes x 32 cores
 #
 # Positional numbers replace MP; key=value arguments override ARGS (last value
-# wins; values must not contain spaces). Other #SBATCH lines can be overridden
-# with SBATCH_* environment variables. The job is named gogt_k<k> and logs to
-# logs/gogt_k<k>.<id>.out.
+# wins; values must not contain spaces). Time, account, memory, ... can be
+# overridden with SBATCH_* environment variables. The job is named gogt_k<k>
+# and logs to logs/gogt_k<k>.<id>.out.
 #
 # The R script auto-detects the allocation via parallelly::availableWorkers()
 # (reads SLURM_JOB_NODELIST / SLURM_JOB_CPUS_PER_NODE) and spawns a PSOCK
@@ -28,7 +29,9 @@ set -euo pipefail
 # i.e. ~10 core-hours).
 MP="0.90 0.80 0.70 0.60"
 ARGS="w_step=0.1 g_step=0.25 sim_n=10000 top_n=50 allow_large_k=TRUE out_dir=results"
-PARTITION="${PARTITION:-normal}"   # <-- your default partition
+PARTITION="${PARTITION:-}"         # empty = the cluster's default partition
+NODES="${NODES:-4}"                # workers = NODES x CORES
+CORES="${CORES:-16}"               # cores (workers) per node
 source "$(dirname "${BASH_SOURCE[0]}")/../args.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -38,16 +41,15 @@ cd "$ROOT"
 # Slurm does not create the --output/--error directory.
 mkdir -p logs results
 
-sbatch <<EOF
+sbatch ${PARTITION:+--partition=$PARTITION} <<EOF
 #!/bin/bash
 #SBATCH --job-name=${NAME}
-# 4 nodes x 16 tasks = 64 workers. Do NOT set --cpus-per-task=1: parallelly
-# then counts only one worker per node.
-#SBATCH --nodes=4
-#SBATCH --ntasks-per-node=16
+# One worker per task. Do NOT set --cpus-per-task=1: parallelly then counts
+# only one worker per node.
+#SBATCH --nodes=${NODES}
+#SBATCH --ntasks-per-node=${CORES}
 # MB per worker; raise if graphs/k are larger.
 #SBATCH --mem-per-cpu=4000
-#SBATCH --partition=${PARTITION}
 # Wall-clock limit (k=4 grid ~10-20 min on 64 cores).
 #SBATCH --time=12:00:00
 #SBATCH --output=logs/${NAME}.%j.out

@@ -12,7 +12,10 @@
 #     bash cluster/lsf/submit_array.sh metrics_file=metrics/custom.R  # + custom metrics
 #     ARRAY=3,7 bash cluster/lsf/submit_array.sh                      # re-run shards 3, 7 + merge
 #     N_SHARDS=32 CORES=2 QUEUE=short bash cluster/lsf/submit_array.sh
+#     MAX_RUNNING=4 bash cluster/lsf/submit_array.sh                  # at most 4 elements at once
 #
+# There is no node count: each element takes CORES slots on one host and LSF
+# places the elements; MAX_RUNNING caps how many run at the same time.
 # Positional numbers replace MP; key=value arguments override ARGS for both the
 # shards and the merge (last value wins; values must not contain spaces).
 # Shards go to <out_dir>/shards/, the merged result to <out_dir>/ under the same
@@ -28,8 +31,9 @@ ARGS="w_step=0.1 g_step=0.25 sim_n=10000 top_n=50 allow_large_k=TRUE out_dir=res
 # per shard. Re-runs must use the same N_SHARDS as the original submission.
 N_SHARDS="${N_SHARDS:-16}"
 CORES="${CORES:-4}"
-QUEUE="${QUEUE:-normal}"           # <-- your default queue
+QUEUE="${QUEUE:-}"                 # empty = the cluster's default queue
 ARRAY="${ARRAY:-1-${N_SHARDS}}"
+MAX_RUNNING="${MAX_RUNNING:-}"     # empty = no limit
 source "$(dirname "${BASH_SOURCE[0]}")/../args.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -39,14 +43,13 @@ cd "$ROOT"
 # LSF does not create the -o/-e directory, so it must exist before submission.
 mkdir -p logs results
 
-OUT=$(bsub <<EOF
+OUT=$(bsub ${QUEUE:+-q $QUEUE} <<EOF
 #!/bin/bash
-#BSUB -J "${NAME}[${ARRAY}]"
+#BSUB -J "${NAME}[${ARRAY}]${MAX_RUNNING:+%$MAX_RUNNING}"
 # One host per element, local workers only; -n sets the worker count.
 #BSUB -n ${CORES}
 #BSUB -R "span[hosts=1]"
 #BSUB -R "rusage[mem=4000]"
-#BSUB -q ${QUEUE}
 #BSUB -W 1:00
 #BSUB -o logs/${NAME}.%J_%I.out
 #BSUB -e logs/${NAME}.%J_%I.err
@@ -63,13 +66,12 @@ echo "$OUT"
 ARRAY_ID=$(sed -n 's/^Job <\([0-9]*\)>.*/\1/p' <<< "$OUT")
 [ -n "$ARRAY_ID" ] || { echo "Could not parse the array job id; merge not submitted." >&2; exit 1; }
 
-bsub <<EOF
+bsub ${QUEUE:+-q $QUEUE} <<EOF
 #!/bin/bash
 #BSUB -J ${NAME}_merge
 #BSUB -w "done(${ARRAY_ID})"
 #BSUB -n 1
 #BSUB -R "rusage[mem=4000]"
-#BSUB -q ${QUEUE}
 #BSUB -W 0:30
 #BSUB -o logs/${NAME}_merge.%J.out
 #BSUB -e logs/${NAME}_merge.%J.err
