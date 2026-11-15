@@ -4,11 +4,11 @@
 .Rproj.user/
 *.Rproj
 
-# LSF job logs
+# Scheduler job logs (LSF / Slurm)
 logs/
 *.out
 *.err
 
-# Full candidate tables (save_full = TRUE) can be gigabytes.
+# Large ad-hoc candidate dumps can be gigabytes.
 # The small top-N artifacts in results/ are committed on purpose.
 *_full.rds

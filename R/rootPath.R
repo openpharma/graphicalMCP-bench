@@ -2,8 +2,9 @@
 # Repository root resolution
 # =============================================================================
 # Scripts in scripts/ need to source R/*.R regardless of the working directory
-# (LSF jobs start in LS_SUBCWD, interactive sessions start anywhere). These two
-# helpers locate the repo root from the running file's own path.
+# (cluster jobs start in the submission directory, interactive sessions start
+# anywhere). These two helpers locate the repo root from the running file's own
+# path.
 # =============================================================================
 
 #' Absolute path of the gogt repository root.

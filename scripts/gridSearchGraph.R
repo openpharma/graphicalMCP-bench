@@ -1,35 +1,37 @@
 #!/usr/bin/env Rscript
 # =============================================================================
-# Grid search for the graph that maximizes a chosen objective
+# Grid search for the best graphs under several metrics at once
 # =============================================================================
 #
 # Brute-force grid search over multiplicity graphs (w, G) for k INDEPENDENT
-# hypotheses. For every candidate on the grid the objective of the full
-# sequentially-rejective graphical procedure is computed by Monte-Carlo
-# simulation (graphicalMCP::graph_calculate_power); the best graph is kept.
-# See R/gridCore.R for the search machinery and the feasibility warning about
-# k > 3.
+# hypotheses. Every candidate is run through the sequentially-rejective
+# weighted-Bonferroni graphical procedure on one shared matrix of simulated
+# p-values, and ALL metrics are evaluated on the same rejections. The top_n
+# graphs per metric are kept. See R/gridCore.R for the search machinery and
+# the feasibility warning about k > 3.
 #
-# OBJECTIVES  (select with objective=<key>, default er)
-#   er  expected number of rejections   $power$rejection_expected
-#   dp  disjunctive power               $power$power_at_least_1
-#   cp  conjunctive power               $power$power_all
+# METRICS  (function(R) -> number to maximize; R = sim_n x k logical rejections)
+#   er  expected number of rejections
+#   dp  disjunctive power (depends on w only)
+#   cp  conjunctive power
+#   Custom: add to `metrics` below, or metrics_file=<file.R> defining `metrics`.
 #
 # USAGE
 #     Rscript scripts/gridSearchGraph.R <mp_1> <mp_2> <mp_3> [key=value ...]
 #   Positional numeric args are the marginal powers (their count defines k):
-#     Rscript scripts/gridSearchGraph.R 0.90 0.80 0.70 objective=dp sim_n=10000
-#   Optional key=value overrides: objective, sim_n, w_step, g_step, w_fixed,
-#   seed, top_n, out_dir, allow_large_k, max_candidates, save_full,
-#   save_results, max_workers.
+#     Rscript scripts/gridSearchGraph.R 0.90 0.80 0.70 sim_n=10000
+#   Optional key=value overrides: sim_n, w_step, g_step, w_fixed, seed, top_n,
+#   out_dir, stem_prefix, allow_large_k, max_candidates, save_results,
+#   max_workers, metrics (comma list), metrics_file.
 #   Fixed weights (skip the w grid): w_fixed=0.5,0.3,0.2 -> only G is searched.
 #   Works from any working directory.
 #
-# LSF / MULTI-NODE
+# CLUSTER / MULTI-NODE
 #   Workers are auto-detected with parallelly::availableWorkers(), which reads
-#   the LSF host allocation (LSB_MCPU_HOSTS / LSB_HOSTS) and spans ALL allocated
-#   nodes via a PSOCK cluster. Submit with bsub/gridSearchGraph.bsub. Requires
-#   graphicalMCP + parallelly installed on every node.
+#   the scheduler allocation (LSF, Slurm, ...) and spans ALL allocated nodes via
+#   a PSOCK cluster. Submit with `bash cluster/lsf/submit.sh` or
+#   `bash cluster/slurm/submit.sh`.
+#   Requires graphicalMCP + parallelly installed on every node.
 # =============================================================================
 
 # --- Bootstrap: locate the repo root, then load the shared code --------------
@@ -54,10 +56,11 @@ gogt_source("R", "gridRunner.R")
 # PARAMETERS  (edit defaults here; any of them can be overridden from the CLI)
 # =============================================================================
 cfg <- gogt_config(
-  objective = "er",
   alpha     = 0.025,
   run_k     = c(3),
   mp_list   = list(k3 = c(0.90, 0.80, 0.70)),
+  # e.g. c(GOGT_METRICS, list(h1h2 = function(R) mean(R[, "H1"] & R[, "H2"])))
+  metrics   = GOGT_METRICS,
   w_step    = 0.05,
   g_step    = 0.1,
   sim_n     = 1e4,

@@ -10,14 +10,10 @@
 
 #' Default grid-search configuration.
 #'
-#' @param objective one of names(GOGT_OBJECTIVES)
-#' @param ... overrides applied on top of the defaults
+#' @param ... overrides; each replaces the default field as a whole
 #' @return named list consumed by gogt_main()
-gogt_config <- function(objective = "er", ...) {
+gogt_config <- function(...) {
   cfg <- list(
-    objective      = objective,
-    stem_prefix    = paste0("gridSearch", toupper(objective)),
-
     ## -- Problem definition ---------------------------------------------------
     alpha          = 0.025,       # one-sided family-wise type I error
     # Which hypothesis counts to run. Default 3; add 4 / 5 only with a coarse
@@ -26,6 +22,16 @@ gogt_config <- function(objective = "er", ...) {
     # Marginal power per hypothesis, one numeric vector per k in run_k. Names
     # must be "k3", "k4", "k5" and the vector length must equal k.
     mp_list        = list(k3 = c(0.90, 0.80, 0.70)),
+
+    ## -- Metrics (all evaluated together on every candidate) ------------------
+    # Named list of function(R) -> one number to maximize; R is the sim_n x k
+    # logical rejection matrix (columns H1..Hk).
+    metrics        = GOGT_METRICS,
+    # Optional R file defining `metrics`, a named list merged into the above.
+    metrics_file   = NULL,
+    # Optional subset / order of metric names (NULL = all). The first one
+    # orders the output table.
+    metric_select  = NULL,
 
     ## -- Grid resolution ------------------------------------------------------
     w_step         = 0.05,        # step for the hypothesis-weight simplex
@@ -36,24 +42,25 @@ gogt_config <- function(objective = "er", ...) {
     w_fixed        = NULL,
 
     ## -- Monte-Carlo / runtime ------------------------------------------------
-    sim_n          = 1e4,         # MC replications per candidate
-    seed           = 2024,        # base RNG seed (common random numbers across
-                                  #   candidates -> more stable ranking)
-    # Workers are auto-detected via parallelly::availableWorkers() (LSF-aware).
+    sim_n          = 1e4,         # MC replications, shared by all candidates
+    seed           = 2024,        # RNG seed of the shared p-value matrix
+    # Workers are auto-detected via parallelly::availableWorkers() (LSF/Slurm-aware).
     # Set max_workers to cap the count, or NULL to use every allocated core.
     max_workers    = NULL,
 
     ## -- Output ---------------------------------------------------------------
-    top_n          = 50L,         # how many best graphs to keep / report per k
-    save_results   = TRUE,        # write RDS/CSV of the top_n table
-    save_full      = FALSE,       # ALSO save the FULL candidate table (can be GBs)
+    top_n          = 50L,         # graphs kept per metric (their union is saved)
+    save_results   = TRUE,        # write RDS/CSV of the kept graphs
     out_dir        = "results",   # relative paths resolve against the repo root
+    stem_prefix    = "gridSearch",
 
     ## -- Safety gate for large k ----------------------------------------------
     allow_large_k  = FALSE,       # set TRUE only after coarsening the grid for k>3
     max_candidates = 1e8          # hard stop above this many candidates
   )
-  modifyList(cfg, list(...))
+  over <- list(...)
+  cfg[names(over)] <- over
+  cfg
 }
 
 
@@ -87,28 +94,64 @@ gogt_parse_cli <- function(cfg, args = commandArgs(trailingOnly = TRUE)) {
                 k_cli, paste(mp_cli, collapse = ", ")))
   }
 
+  conv <- function(key, val, as) {
+    out <- suppressWarnings(as(val))
+    if (anyNA(out)) stop("Invalid value for CLI option ", key, ": '", val, "'")
+    out
+  }
+  split_csv <- function(val) strsplit(val, ",", fixed = TRUE)[[1]]
+
   for (item in kv) {
-    p   <- strsplit(item, "=", fixed = TRUE)[[1]]
-    key <- p[1]; val <- p[2]
-    if      (key == "sim_n")          cfg$sim_n          <- as.numeric(val)
-    else if (key == "w_step")         cfg$w_step         <- as.numeric(val)
-    else if (key == "g_step")         cfg$g_step         <- as.numeric(val)
-    else if (key == "w_fixed")        cfg$w_fixed        <- as.numeric(strsplit(val, ",", fixed = TRUE)[[1]])
-    else if (key == "seed")           cfg$seed           <- as.integer(val)
-    else if (key == "top_n")          cfg$top_n          <- as.integer(val)
+    key <- sub("=.*$", "", item)
+    val <- sub("^[^=]*=", "", item)
+    if      (key == "sim_n")          cfg$sim_n          <- conv(key, val, as.numeric)
+    else if (key == "w_step")         cfg$w_step         <- conv(key, val, as.numeric)
+    else if (key == "g_step")         cfg$g_step         <- conv(key, val, as.numeric)
+    else if (key == "w_fixed")        cfg$w_fixed        <- conv(key, split_csv(val), as.numeric)
+    else if (key == "seed")           cfg$seed           <- conv(key, val, as.integer)
+    else if (key == "top_n")          cfg$top_n          <- conv(key, val, as.integer)
     else if (key == "out_dir")        cfg$out_dir        <- val
-    else if (key == "allow_large_k")  cfg$allow_large_k  <- as.logical(val)
-    else if (key == "max_candidates") cfg$max_candidates <- as.numeric(val)
-    else if (key == "save_full")      cfg$save_full      <- as.logical(val)
-    else if (key == "save_results")   cfg$save_results   <- as.logical(val)
-    else if (key == "max_workers")    cfg$max_workers    <- as.integer(val)
-    else if (key == "objective") {
-      cfg$objective   <- val
-      cfg$stem_prefix <- paste0("gridSearch", toupper(val))
-    }
-    else warning("Unknown CLI option ignored: ", key)
+    else if (key == "stem_prefix")    cfg$stem_prefix    <- val
+    else if (key == "allow_large_k")  cfg$allow_large_k  <- conv(key, val, as.logical)
+    else if (key == "max_candidates") cfg$max_candidates <- conv(key, val, as.numeric)
+    else if (key == "save_results")   cfg$save_results   <- conv(key, val, as.logical)
+    else if (key == "max_workers")    cfg$max_workers    <- conv(key, val, as.integer)
+    else if (key == "metrics")        cfg$metric_select  <- split_csv(val)
+    else if (key == "metrics_file")   cfg$metrics_file   <- val
+    else stop("Unknown CLI option '", key, "'. Valid: sim_n, w_step, g_step, ",
+              "w_fixed, seed, top_n, out_dir, stem_prefix, allow_large_k, ",
+              "max_candidates, save_results, max_workers, metrics, metrics_file.")
   }
   cfg
+}
+
+
+#' Final metric list of a config: defaults, plus metrics_file, then selection.
+#'
+#' @param cfg config list
+#' @return named list of metric functions
+gogt_resolve_metrics <- function(cfg) {
+  metrics <- cfg$metrics
+  if (!is.null(cfg$metrics_file)) {
+    path <- cfg$metrics_file
+    if (!file.exists(path)) path <- file.path(gogt_root(), path)
+    if (!file.exists(path)) stop("metrics_file not found: ", cfg$metrics_file)
+    env <- new.env(parent = globalenv())
+    sys.source(path, envir = env)
+    if (!is.list(env$metrics) || is.null(names(env$metrics))) {
+      stop(path, " must define `metrics`, a named list of function(R).")
+    }
+    metrics[names(env$metrics)] <- env$metrics
+  }
+  if (!is.null(cfg$metric_select)) {
+    miss <- setdiff(cfg$metric_select, names(metrics))
+    if (length(miss)) {
+      stop("Unknown metric(s): ", paste(miss, collapse = ", "),
+           ". Available: ", paste(names(metrics), collapse = ", "))
+    }
+    metrics <- metrics[cfg$metric_select]
+  }
+  metrics
 }
 
 
@@ -123,14 +166,14 @@ gogt_check_deps <- function() {
 }
 
 
-#' Analytic value of an objective for a single-step weighted-Bonferroni test.
+#' Analytic value of a default metric for a single-step weighted-Bonferroni test.
 #'
 #' This is the G = 0 case: no alpha is propagated, so the graphical procedure
 #' reduces to the closed forms in R/expectedRejections.R / R/analyticDP.R.
 #'
 #' @return numeric, or NULL when the analytic reference is unavailable
-gogt_analytic <- function(w, alpha, mp, objective) {
-  switch(objective,
+gogt_analytic <- function(w, alpha, mp, metric) {
+  switch(metric,
     er = if (exists("expected_rejections")) {
       expected_rejections(w, alpha, mp, test = "Bonferroni")
     },
@@ -145,33 +188,76 @@ gogt_analytic <- function(w, alpha, mp, objective) {
 }
 
 
-#' Cross-check: with G = 0 the simulated objective must match the analytic
-#' single-step value within Monte-Carlo error.
-verify_zero_transition <- function(k, alpha, mp, objective = "er",
-                                   sim_n = 1e5, seed = 2024) {
-  w   <- rep(1 / k, k)
-  ana <- gogt_analytic(w, alpha, mp, objective)
-  if (is.null(ana)) {
-    message("Analytic reference for '", objective,
-            "' not loaded; skipping cross-check.")
-    return(invisible(NULL))
+#' Cross-check: the rejection engine must reproduce graphicalMCP exactly.
+#'
+#' Random graphs (with some zero weights / transitions) are simulated by
+#' graph_calculate_power(); the engine is run on the same p-values and the two
+#' rejection matrices must be identical.
+verify_engine <- function(k, alpha, mp, n_graphs = 5L, sim_n = 2000L,
+                          seed = 1L) {
+  for (i in seq_len(n_graphs)) {
+    set.seed(seed + i)
+    w <- runif(k) * (runif(k) > 0.25)
+    if (!any(w > 0)) w[1] <- 1
+    w <- w / sum(w)
+    G <- matrix(runif(k * k) * (runif(k * k) > 0.25), k, k)
+    diag(G) <- 0
+    G <- G / pmax(rowSums(G), 1e-12)
+    ref <- graphicalMCP::graph_calculate_power(
+      graph          = graphicalMCP::graph_create(w, G),
+      alpha          = alpha,
+      power_marginal = mp,
+      test_types     = "bonferroni",
+      sim_n          = sim_n,
+      sim_corr       = diag(k),
+      verbose        = TRUE
+    )
+    R <- graph_rejections(w, G, ref$details$p_sim, alpha)
+    if (!identical(unname(R), unname(ref$details$test_results))) {
+      stop(sprintf("[verify k=%d] rejection engine disagrees with graphicalMCP ",
+                   k), "for w = ", paste(round(w, 4), collapse = ", "), ".")
+    }
   }
-  sim   <- eval_graph(w, matrix(0, k, k), alpha, mp, sim_n, seed, objective)
-  label <- gogt_objective(objective)$label
-  cat(sprintf("[verify k=%d] G=0 %s: analytic=%.5f  simulated=%.5f  diff=%+.5f\n",
-              k, label, ana, sim, sim - ana))
-  invisible(list(analytic = ana, simulated = sim))
+  cat(sprintf("[verify k=%d] engine matches graphicalMCP on %d random graphs\n",
+              k, n_graphs))
+}
+
+
+#' Cross-check: with G = 0 the default metrics must match their analytic
+#' single-step values within Monte-Carlo error.
+#'
+#' Runs on the search's own p-values. Stops when a difference exceeds 4 MC
+#' standard errors, bounded by sqrt(k) / (2 sqrt(sim_n)) under independence.
+verify_zero_transition <- function(p, alpha, mp, metrics) {
+  k <- ncol(p)
+  w <- rep(1 / k, k)
+  own <- names(metrics)[vapply(names(metrics), function(x)
+    identical(metrics[[x]], GOGT_METRICS[[x]]), logical(1))]
+  if (!length(own)) return(invisible(NULL))
+  sim <- eval_graph(w, matrix(0, k, k), p, alpha, metrics[own])
+  tol <- 2 * sqrt(k / nrow(p))
+  for (x in own) {
+    ana <- gogt_analytic(w, alpha, mp, x)
+    if (is.null(ana)) next
+    cat(sprintf("[verify k=%d] G=0 %s: analytic=%.5f  simulated=%.5f  diff=%+.5f\n",
+                k, x, ana, sim[[x]], sim[[x]] - ana))
+    if (abs(sim[[x]] - ana) > tol) {
+      stop(sprintf("[verify k=%d] G=0 %s differs from analytic by more than %.4f.",
+                   k, x, tol))
+    }
+  }
+  invisible(sim)
 }
 
 
 #' Fast pipeline smoke test on a coarse grid (seconds, not the full run).
-smoke_test <- function(k = 3, alpha = 0.025, mp = c(0.8, 0.7, 0.9),
-                       objective = "er") {
-  res <- grid_search_k(k, alpha, mp, w_step = 0.25, g_step = 0.5,
-                       sim_n = 2e3, seed = 1, top_n = 5, cl = NULL,
+smoke_test <- function(alpha = 0.025, mp = c(0.8, 0.7, 0.9),
+                       metrics = GOGT_METRICS) {
+  p <- simulate_pvalues(length(mp), alpha, mp, sim_n = 2e3, seed = 1)
+  res <- grid_search_k(p, alpha, w_step = 0.25, g_step = 0.5, top_n = 5,
                        allow_large_k = TRUE, max_candidates = Inf,
-                       objective = objective)
-  report_best(k, res)
+                       metrics = metrics)
+  report_best(res)
   invisible(res)
 }
 
@@ -182,7 +268,7 @@ smoke_test <- function(k = 3, alpha = 0.025, mp = c(0.8, 0.7, 0.9),
 #' @return invisibly, a named list of grid_search_k() results per k
 gogt_main <- function(cfg) {
   gogt_check_deps()
-  gogt_objective(cfg$objective)
+  metrics <- gogt_resolve_metrics(cfg)
 
   out_dir <- cfg$out_dir
   if (!isTRUE(grepl("^(/|\\\\|[A-Za-z]:)", out_dir))) {
@@ -197,34 +283,34 @@ gogt_main <- function(cfg) {
     key <- paste0("k", k)
     mp  <- cfg$mp_list[[key]]
     if (is.null(mp)) stop("No marginal powers defined in mp_list for ", key, ".")
+    check_metrics(metrics, k)
 
-    verify_zero_transition(k, cfg$alpha, mp, cfg$objective)
+    verify_engine(k, cfg$alpha, mp)
+    p <- simulate_pvalues(k, cfg$alpha, mp, cfg$sim_n, cfg$seed)
+    verify_zero_transition(p, cfg$alpha, mp, metrics)
 
     res <- grid_search_k(
-      k              = k,
+      p              = p,
       alpha          = cfg$alpha,
-      mp             = mp,
       w_step         = cfg$w_step,
       g_step         = cfg$g_step,
-      sim_n          = cfg$sim_n,
-      seed           = cfg$seed,
       top_n          = cfg$top_n,
       cl             = cl,
       allow_large_k  = cfg$allow_large_k,
       max_candidates = cfg$max_candidates,
       w_fixed        = cfg$w_fixed,
-      objective      = cfg$objective
+      metrics        = metrics
     )
-    report_best(k, res)
     results[[key]] <- res
 
     # Tag output files with the marginal powers so array jobs don't clash.
     tag <- paste0("mp", paste(sprintf("%02d", round(mp * 100)), collapse = "_"))
     if (!is.null(cfg$w_fixed)) tag <- paste0(tag, "_fixedw")
     if (cfg$save_results) {
-      save_best(k, res, out_dir, cfg$save_full, tag = tag,
-                stem_prefix = cfg$stem_prefix)
+      stem <- save_best(res, out_dir, tag = tag, stem_prefix = cfg$stem_prefix)
+      cat(sprintf("[k=%d] results written to %s.rds / _top.csv\n", k, stem))
     }
+    report_best(res)
   }
   invisible(results)
 }
