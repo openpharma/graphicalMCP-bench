@@ -4,12 +4,13 @@
 # =============================================================================
 # Usage (from any directory, on an LSF login node):
 #     bash cluster/lsf/submit.sh                                # er, dp, cp together
+#     bash cluster/lsf/submit.sh 0.9 0.8 0.7 w_step=0.02        # marginal powers + overrides
 #     bash cluster/lsf/submit.sh metrics_file=metrics/custom.R  # + custom metrics
-#     bash cluster/lsf/submit.sh metrics=er,cp sim_n=100000     # any key=value
+#     QUEUE=short bash cluster/lsf/submit.sh
 #
-# Extra key=value arguments are appended to ARGS (values must not contain
-# spaces). The job is named gogt_k<k> and logs to logs/gogt_k<k>.<id>.out.
-# Edit MP / ARGS below for the problem, and the #BSUB lines for resources.
+# Positional numbers replace MP; key=value arguments override ARGS (last value
+# wins; values must not contain spaces). The job is named gogt_k<k> and logs to
+# logs/gogt_k<k>.<id>.out. Edit the #BSUB lines for other resources.
 #
 # The R script auto-detects the LSF allocation via parallelly::availableWorkers()
 # (reads LSB_MCPU_HOSTS / LSB_HOSTS) and spawns a PSOCK cluster spanning all
@@ -24,7 +25,8 @@ set -euo pipefail
 # i.e. ~10 core-hours).
 MP="0.90 0.80 0.70 0.60"
 ARGS="w_step=0.1 g_step=0.25 sim_n=10000 top_n=50 allow_large_k=TRUE out_dir=results"
-EXTRA="$*"
+QUEUE="${QUEUE:-normal}"           # <-- your default queue
+source "$(dirname "${BASH_SOURCE[0]}")/../args.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 K=$(wc -w <<< "$MP")
@@ -39,7 +41,7 @@ bsub <<EOF
 #BSUB -n 64                       # total slots (cores) requested across nodes
 #BSUB -R "span[ptile=16]"         # 16 cores/node -> 64/16 = 4 nodes
 #BSUB -R "rusage[mem=4000]"       # MB per slot; raise if graphs/k are larger
-#BSUB -q normal                   # <-- set to your queue
+#BSUB -q ${QUEUE}
 #BSUB -W 12:00                    # wall-clock limit HH:MM (k=4 grid ~10-20 min on 64 cores)
 #BSUB -o logs/${NAME}.%J.out
 #BSUB -e logs/${NAME}.%J.err

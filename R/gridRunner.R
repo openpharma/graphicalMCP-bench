@@ -110,7 +110,8 @@ gogt_parse_cli <- function(cfg, args = commandArgs(trailingOnly = TRUE)) {
   for (item in kv) {
     key <- sub("=.*$", "", item)
     val <- sub("^[^=]*=", "", item)
-    if      (key == "sim_n")          cfg$sim_n          <- conv(key, val, as.numeric)
+    if      (key == "alpha")          cfg$alpha          <- conv(key, val, as.numeric)
+    else if (key == "sim_n")          cfg$sim_n          <- conv(key, val, as.numeric)
     else if (key == "w_step")         cfg$w_step         <- conv(key, val, as.numeric)
     else if (key == "g_step")         cfg$g_step         <- conv(key, val, as.numeric)
     else if (key == "w_fixed")        cfg$w_fixed        <- conv(key, split_csv(val), as.numeric)
@@ -132,7 +133,7 @@ gogt_parse_cli <- function(cfg, args = commandArgs(trailingOnly = TRUE)) {
         stop("shard must be i/N with 1 <= i <= N; got '", val, "'")
       }
     }
-    else stop("Unknown CLI option '", key, "'. Valid: sim_n, w_step, g_step, ",
+    else stop("Unknown CLI option '", key, "'. Valid: alpha, sim_n, w_step, g_step, ",
               "w_fixed, seed, top_n, out_dir, stem_prefix, allow_large_k, ",
               "max_candidates, save_results, max_workers, metrics, metrics_file, ",
               "shard, merge_shards.")

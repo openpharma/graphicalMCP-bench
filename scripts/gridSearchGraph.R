@@ -20,8 +20,8 @@
 #     Rscript scripts/gridSearchGraph.R <mp_1> <mp_2> <mp_3> [key=value ...]
 #   Positional numeric args are the marginal powers (their count defines k):
 #     Rscript scripts/gridSearchGraph.R 0.90 0.80 0.70 sim_n=10000
-#   Optional key=value overrides: sim_n, w_step, g_step, w_fixed, seed, top_n,
-#   out_dir, stem_prefix, allow_large_k, max_candidates, save_results,
+#   Optional key=value overrides: alpha, sim_n, w_step, g_step, w_fixed, seed,
+#   top_n, out_dir, stem_prefix, allow_large_k, max_candidates, save_results,
 #   max_workers, metrics (comma list), metrics_file, shard, merge_shards.
 #   Fixed weights (skip the w grid): w_fixed=0.5,0.3,0.2 -> only G is searched.
 #   Job arrays: shard=i/N searches one shard; merge_shards=N combines them.

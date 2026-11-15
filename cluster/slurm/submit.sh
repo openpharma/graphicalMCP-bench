@@ -4,12 +4,14 @@
 # =============================================================================
 # Usage (from any directory, on a Slurm login node):
 #     bash cluster/slurm/submit.sh                                # er, dp, cp together
+#     bash cluster/slurm/submit.sh 0.9 0.8 0.7 w_step=0.02        # marginal powers + overrides
 #     bash cluster/slurm/submit.sh metrics_file=metrics/custom.R  # + custom metrics
-#     bash cluster/slurm/submit.sh metrics=er,cp sim_n=100000     # any key=value
+#     PARTITION=short SBATCH_TIMELIMIT=02:00:00 bash cluster/slurm/submit.sh
 #
-# Extra key=value arguments are appended to ARGS (values must not contain
-# spaces). The job is named gogt_k<k> and logs to logs/gogt_k<k>.<id>.out.
-# Edit MP / ARGS below for the problem, and the #SBATCH lines for resources.
+# Positional numbers replace MP; key=value arguments override ARGS (last value
+# wins; values must not contain spaces). Other #SBATCH lines can be overridden
+# with SBATCH_* environment variables. The job is named gogt_k<k> and logs to
+# logs/gogt_k<k>.<id>.out.
 #
 # The R script auto-detects the allocation via parallelly::availableWorkers()
 # (reads SLURM_JOB_NODELIST / SLURM_JOB_CPUS_PER_NODE) and spawns a PSOCK
@@ -26,7 +28,8 @@ set -euo pipefail
 # i.e. ~10 core-hours).
 MP="0.90 0.80 0.70 0.60"
 ARGS="w_step=0.1 g_step=0.25 sim_n=10000 top_n=50 allow_large_k=TRUE out_dir=results"
-EXTRA="$*"
+PARTITION="${PARTITION:-normal}"   # <-- your default partition
+source "$(dirname "${BASH_SOURCE[0]}")/../args.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 K=$(wc -w <<< "$MP")
@@ -44,8 +47,7 @@ sbatch <<EOF
 #SBATCH --ntasks-per-node=16
 # MB per worker; raise if graphs/k are larger.
 #SBATCH --mem-per-cpu=4000
-# <-- set to your partition
-#SBATCH --partition=normal
+#SBATCH --partition=${PARTITION}
 # Wall-clock limit (k=4 grid ~10-20 min on 64 cores).
 #SBATCH --time=12:00:00
 #SBATCH --output=logs/${NAME}.%j.out
