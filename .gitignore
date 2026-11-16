@@ -10,8 +10,13 @@ logs/
 *.err
 
 # Large ad-hoc candidate dumps can be gigabytes.
-# The small top-N artifacts in results/ are committed on purpose.
 *_full.rds
+
+# Only scenario results (results/<id>/) are shared; ad-hoc runs without
+# scenario= write directly into results/ and stay local.
+results/*.rds
+results/*.csv
 
 # Intermediate job-array shards (merged into results/ by merge_shards=N).
 results/shards/
+results/*/shards/

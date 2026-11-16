@@ -1,7 +1,7 @@
 # gogt — graph optimization ground truth
 
-Brute-force grid search over multiplicity graphs, used as **ground truth** for the
-analytic/numeric optimizers in the `optimalMCP` package.
+Brute-force grid search over multiplicity graphs, used as **ground truth** for
+analytic/numeric graph optimizers (see [Optimizers](#optimizers)).
 
 A multiplicity graph is a pair `(w, G)`: initial hypothesis weights `w` (summing to 1)
 and a row-stochastic transition matrix `G` (zero diagonal, rows summing to 1). This
@@ -10,7 +10,55 @@ weighted-Bonferroni graphical procedure for every candidate on **one shared matr
 simulated p-values**, evaluates **all metrics together** on the resulting rejections,
 and reports the best graphs for each metric.
 
-Everything is under **independence** (`sim_corr = diag(k)`) with Bonferroni tests.
+Tests are weighted Bonferroni. The test statistics may be correlated; the correlation
+only changes the simulated p-values.
+
+Shared examples live in `scenarios/` (one file each), and their results are presented in
+[docs/](docs/README.md). To add one, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Scenarios
+
+A scenario file `scenarios/<id>.R` defines a list `scenario` with `title`, `author`,
+`alpha` and `mp` (marginal powers; their count is `k`), and optionally `corr`, `metrics`,
+`w_fixed`, `G_fixed`, grid and simulation settings. See `scenarios/_template.R` for every
+field, and `scenarios/example_k3.R` for a worked example.
+
+```sh
+Rscript scripts/gridSearchGraph.R scenario=example_k3
+```
+
+This writes `results/<id>/<id>.rds`, `_best.csv` and `_top.csv`, renders
+`docs/scenarios/<id>.md` and rebuilds the index `docs/README.md`. Other `key=value`
+arguments override the file (e.g. a coarse grid for a smoke test); the page then shows
+the overrides. `Rscript scripts/renderDocs.R [id ...]` rebuilds the pages from the saved
+results.
+
+## Correlation
+
+`corr` is `NULL` (independence, the default), one number (equicorrelation) or a `k × k`
+correlation matrix. It must be symmetric, have a unit diagonal and be positive
+semi-definite. On the command line, `corr=0.3` sets an equicorrelation. E[R] does not
+depend on the correlation; DP, CP and joint metrics do.
+
+## Constraints
+
+`w_fixed` (length `k`) and `G_fixed` (`k × k`, rows = from) fix single entries: `NA`
+means free and a number means fixed (0 removes a weight or an edge). Free entries share
+what the fixed ones leave, on the same grid, so every row still sums to 1 when it has a
+free entry. Fixed values must therefore leave a multiple of the step, or the run stops.
+A row whose entries are all fixed may sum to less than 1. The diagonal of `G_fixed` must
+be `NA` or 0.
+
+```r
+w_fixed = c(NA, NA, 0)                         # H3 starts with no alpha
+G_fixed = matrix(c(NA, NA, NA,
+                   NA, NA,  0,                 # no edge H2 -> H3
+                   NA, NA, NA), 3, byrow = TRUE)
+```
+
+Constraints are applied while the grid is built, so they shrink the candidate space and
+make larger `k` more feasible. On the command line, `w_fixed=0.5,NA,NA` works; `G_fixed`
+can only be set in a scenario file or in the `cfg` block of the script.
 
 ## Metrics
 
@@ -46,38 +94,58 @@ metrics <- list(
 
 `metrics=er,h1h2` selects / orders the metrics to evaluate (the first one orders the
 output table). To minimize something, return its negative. Metric names must be valid R
-names and not `G`, `g_id`, `w_id`, `w<i>` or `rank_*`.
+names and not `G`, `g_id`, `w_id`, `metric`, `w<i>`, `rank_*`, `*_val` or `*_se`.
+
+## Optimizers
+
+The optimization methods to be compared against the grid search live in
+`optimizer/<method>/`, one folder per method:
+
+| method | status | optimizes |
+| ------ | ------ | --------- |
+| [optimalMCP](optimizer/optimalMCP/README.md) | placeholder | weights `w` maximizing E[R] of the single-step test (no `G` yet) |
+
+Each folder is self-contained: its own code, its own dependencies and a `README.md`
+that describes the method, its origin and its limits. Optimizers never change `R/`,
+and the grid search never loads anything from `optimizer/`, so the cluster only needs
+the grid's packages. How optimizers are run and scored against the grid is still to be
+designed.
 
 ## Layout
 
 ```
+CONTRIBUTING.md        how to add a scenario
 R/
   rootPath.R           gogt_root() / gogt_source(): cwd-independent path resolution
-  utils.R              solve_eta, sigma_matrix, inverse_derivative
-  constraintBonf.R     Bonferroni equality constraint for nloptr
-  expectedRejections.R analytic E[R] + weight optimizer (optim_w_er)
-  analyticDP.R         analytic DP/CP under independence
-  gridCore.R           metrics, simplex/transition grids, rejection engine, grid_search_k, reporting
-  gridRunner.R         config, CLI parsing, verification, main loop
+  analytic.R           closed-form E[R] (any correlation) and DP/CP (independence) for G = 0
+  gridCore.R           metrics, constrained grids, rejection engine, grid_search_k,
+                       re-evaluation, saving
+  gridRunner.R         config, CLI parsing, scenario loading, verification, main loop
+  report.R             markdown pages of scenario results
+scenarios/
+  _template.R          documented template (copy to <id>.R)
+  <id>.R               one shared example per file
 scripts/
   gridSearchGraph.R    entry point (all metrics in one run)
-  compareExpectedRejections.R  analytic E[R] vs graphicalMCP simulation
+  renderDocs.R         rebuild docs/ from results/<id>/<id>.rds
+optimizer/
+  optimalMCP/          optim_w_er (vendored from optimalMCP) + its check script
 cluster/
+  args.sh              argument handling shared by the submit scripts
   lsf/submit.sh        LSF (bsub): one multi-node job
   lsf/submit_array.sh  LSF job array: independent shards + merge job
   slurm/submit.sh      Slurm (sbatch): one multi-node job
   slurm/submit_array.sh  Slurm job array: independent shards + merge job
   slurm/srun-rsh.sh    starts remote PSOCK workers via srun instead of ssh
-results/               default out_dir for RDS/CSV artifacts
+results/<id>/          committed scenario results (ad-hoc runs in results/ stay local)
+docs/                  generated: README.md (index) + scenarios/<id>.md
 ```
-
-`R/utils.R`, `R/constraintBonf.R` and `R/expectedRejections.R` are vendored from
-`optimalMCP` so this repo runs standalone — there is no `library(optimalMCP)` anywhere.
 
 ## Requirements
 
 - R, plus `graphicalMCP` and `parallelly` (`parallel` ships with base R).
-- `nloptr` only for `optim_w_er()` in `R/expectedRejections.R` (not used by the grid search).
+- Optimizers have their own requirements (see their README), e.g. `nloptr` for
+  `optimizer/optimalMCP`.
 
 On a cluster, those packages must be visible from **every** compute node.
 
@@ -98,14 +166,16 @@ Rscript scripts/gridSearchGraph.R 0.90 0.80 0.70 metrics_file=my_metrics.R metri
 ```
 
 Positional numeric arguments are the marginal powers; their count defines `k`.
-`key=value` arguments override config fields: `alpha`, `sim_n`, `w_step`, `g_step`,
-`w_fixed`, `seed`, `top_n`, `out_dir`, `stem_prefix`, `allow_large_k`, `max_candidates`,
-`save_results`, `max_workers`, `metrics` (comma list), `metrics_file`, `shard`,
-`merge_shards`. Unknown keys and unparsable values are errors.
+`key=value` arguments override config fields: `scenario`, `alpha`, `corr`, `sim_n`,
+`w_step`, `g_step`, `w_fixed`, `seed`, `top_n`, `validate_n`, `validate_seed`, `out_dir`,
+`stem_prefix`, `allow_large_k`, `max_candidates`, `save_results`, `max_workers`,
+`metrics` (comma list), `metrics_file`, `shard`, `merge_shards`. Unknown keys and
+unparsable values are errors. With `scenario=`, positional arguments are not allowed.
 
-Pass `w_fixed=0.5,0.3,0.2` to skip the weight simplex and search only `G`; those runs
-are tagged `_fixedw` so they do not overwrite full-grid results. Use `stem_prefix` to
-keep runs with different metric sets apart.
+Pass `w_fixed=0.5,0.3,0.2` to skip the weight simplex and search only `G`, or
+`w_fixed=0.5,NA,NA` to fix only some weights. Ad-hoc runs are tagged `_fixedw` /
+`_fixedg` / `_rho<xx>` / `_corr` so they do not overwrite unconstrained or independent
+results. Use `stem_prefix` to keep runs with different metric sets apart.
 
 Defaults live in the `cfg <- gogt_config(...)` block of the script.
 
@@ -118,6 +188,12 @@ Defaults live in the `cfg <- gogt_config(...)` block of the script.
 3. Each candidate's rejection matrix `R` comes from a vectorised form of
    graphicalMCP's Bonferroni shortcut; every metric is evaluated on that `R`.
 4. Workers keep only the union of the per-metric top `top_n`, so memory stays small.
+5. The kept graphs are re-evaluated on `validate_n` (default 1e5) fresh simulations
+   (`validate_seed`, default `seed + 1`). The search values of the winners are
+   optimistic because they were selected on the same p-values; the re-evaluated values
+   are unbiased. Their standard errors come from 20 batch means, so they work for any
+   metric that averages over simulations. The ranking still uses the search values.
+   `validate_n=0` skips this step.
 
 This gives results identical to calling `graph_calculate_power()` per candidate, at
 ~2–3 ms per candidate for all metrics (`sim_n = 1e4`) instead of ~55 ms per metric.
@@ -127,6 +203,7 @@ This gives results identical to calling `graph_calculate_power()` per candidate,
 One job runs all metrics. Pick the script for your scheduler:
 
 ```sh
+bash cluster/slurm/submit.sh scenario=my_id            # a scenario file defines the run
 bash cluster/lsf/submit.sh                             # LSF:   er, dp, cp in one job
 bash cluster/slurm/submit.sh                           # Slurm: er, dp, cp in one job
 bash cluster/slurm/submit.sh 0.9 0.8 0.7 w_step=0.02 metrics_file=my_metrics.R
@@ -135,6 +212,7 @@ NODES=2 CORES=32 bash cluster/slurm/submit.sh          # 2 nodes x 32 cores = 64
 ```
 
 Defaults (`MP`, `ARGS`, partition/queue, resources) are set at the top of each script.
+With `scenario=<id>`, `MP` and `ARGS` are ignored and the job is named `gogt_<id>`.
 On the command line, positional numbers replace `MP` (the marginal powers), `key=value`
 arguments override `ARGS` (last value wins), and `PARTITION` (Slurm) / `QUEUE` (LSF)
 select the partition/queue (unset = the cluster's default; list them with `sinfo -s` /
@@ -178,7 +256,8 @@ Each array task runs `gridSearchGraph.R ... shard=i/N`: it searches every `N`-th
 transition matrix starting at `i` on its own node's cores and writes
 `<out_dir>/shards/<stem>_shard<i>of<N>.rds`. A dependent job then runs
 `... merge_shards=N`, which combines the shards into `<out_dir>/<stem>.rds` /
-`_top.csv`. All shards use the same seed and hence the same p-values, so the merged
+`_top.csv` / `_best.csv`, re-evaluates the kept graphs and, for a scenario, renders its
+page. All shards use the same seed and hence the same p-values, so the merged
 result is identical to a single run. Re-runs must use the same `N_SHARDS` and arguments
 as the original submission.
 
@@ -194,23 +273,33 @@ The candidate space is (# weight vectors) × (# transition matrices). With a fin
 | 5 | 4.6e6          | 1.7e16              | ~8e22      |
 
 `k > 3` therefore requires a much coarser grid **and** `allow_large_k=TRUE`; runs above
-`max_candidates` (1e8) abort otherwise.
+`max_candidates` (1e8) abort otherwise. Fixed entries (`w_fixed`, `G_fixed`) shrink both
+factors.
 
 ## Output
 
-Written to `out_dir` (default `results/`):
+A scenario run writes to `results/<id>/` with stem `<id>`. An ad-hoc run writes to
+`out_dir` (default `results/`, not committed) with stem
+`gridSearch_k<k>_mp<..>[_rho<xx>|_corr][_fixedw][_fixedg]`:
 
-- `gridSearch_k<k>_mp<..>[_fixedw].rds` — the `grid_search_k()` result:
-  `best` (data frame), `k`, `metrics`, `n_candidates`.
-- `gridSearch_k<k>_mp<..>[_fixedw]_top.csv` — `best` flattened.
+- `<stem>.rds`: the full result, with `best` (data frame), `k`, `metrics`,
+  `n_candidates`, `settings` (alpha, mp, corr, constraints, grid, seed),
+  `validation` (sim_n, seed, batches) and `meta` (scenario, overrides, run date, git
+  commit, R / graphicalMCP versions, metric definitions).
+- `<stem>_best.csv`: **the key result**, one row per metric with the graph that is
+  optimal for it (`metric`, `w1..wk`, every metric's search value, `_val` and `_se`, `G`).
+- `<stem>_top.csv`: `best` flattened.
 
 `best` holds the union of the top `top_n` graphs of every metric, one row per graph:
-weights `w1..wk`, one column per metric, `rank_<metric>` (`NA` outside that metric's
-top `top_n`), `g_id` and `G`. Rows are sorted by the first metric; ties are broken by
+weights `w1..wk`; per metric the search value, the re-evaluated value `<metric>_val`
+and its standard error `<metric>_se`; `g_id`; `rank_<metric>` (`NA` outside that
+metric's top `top_n`); and `G`. Rows are sorted by the first metric; ties are broken by
 the other metrics. In the CSV, `G` is a semicolon-delimited string in column-major
 order: `matrix(as.numeric(strsplit(G, ";")[[1]]), k)`.
 
-The tag encodes the marginal powers, e.g. `mp90_80_70`, so parallel runs do not clash.
+The page `docs/scenarios/<id>.md` shows the setup, the trade-off between the
+metric-optimal graphs, every optimal `w` and `G`, and the top 10 per metric. Graphs
+with identical values are collapsed into one row.
 
 ## Verification
 
@@ -224,9 +313,7 @@ Every run starts with two cross-checks, and stops if either fails:
 1. The rejection engine is run on random graphs (with zero weights/transitions) and
    must reproduce `graph_calculate_power()`'s rejection matrix exactly.
 2. With `G = 0` no alpha is propagated, so the procedure reduces to a single-step
-   weighted-Bonferroni test with closed-form E[R]/DP/CP. On the run's own p-values
-   the difference must be within 4 MC standard errors (`2 * sqrt(k / sim_n)`).
-   Only the default `er`/`dp`/`cp` metrics are checked.
-
-`scripts/compareExpectedRejections.R` runs the analytic comparison across several
-scenarios, including per-hypothesis rejection probabilities.
+   weighted-Bonferroni test with closed-form E[R]/DP/CP (`R/analytic.R`). On the run's
+   own p-values the difference must be within 4 MC standard errors
+   (`2 * sqrt(k / sim_n)`). Only the default `er`/`dp`/`cp` metrics are checked. With
+   correlation only `er` is checked, because the closed-form DP/CP assume independence.
