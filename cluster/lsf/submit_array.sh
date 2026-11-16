@@ -49,7 +49,7 @@ OUT=$(bsub ${QUEUE:+-q $QUEUE} <<EOF
 # One host per element, local workers only; -n sets the worker count.
 #BSUB -n ${CORES}
 #BSUB -R "span[hosts=1]"
-#BSUB -R "rusage[mem=4000]"
+#BSUB -R "rusage[mem=1000]"
 #BSUB -W 1:00
 #BSUB -o logs/${NAME}.%J_%I.out
 #BSUB -e logs/${NAME}.%J_%I.err
@@ -71,7 +71,7 @@ bsub ${QUEUE:+-q $QUEUE} <<EOF
 #BSUB -J ${NAME}_merge
 #BSUB -w "done(${ARRAY_ID})"
 #BSUB -n 1
-#BSUB -R "rusage[mem=4000]"
+#BSUB -R "rusage[mem=2000]"
 #BSUB -W 0:30
 #BSUB -o logs/${NAME}_merge.%J.out
 #BSUB -e logs/${NAME}_merge.%J.err

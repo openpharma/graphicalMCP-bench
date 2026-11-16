@@ -50,7 +50,7 @@ bsub ${QUEUE:+-q $QUEUE} <<EOF
 #BSUB -J ${NAME}
 #BSUB -n ${SLOTS}
 #BSUB -R "${SPAN}"
-#BSUB -R "rusage[mem=4000]"       # MB per slot; raise if graphs/k are larger
+#BSUB -R "rusage[mem=1000]"       # MB per slot (measured peak ~200 MB at k=4, sim_n=1e5)
 #BSUB -W 12:00                    # wall-clock limit HH:MM (k=4 grid ~40 min on 16 cores)
 #BSUB -o logs/${NAME}.%J.out
 #BSUB -e logs/${NAME}.%J.err

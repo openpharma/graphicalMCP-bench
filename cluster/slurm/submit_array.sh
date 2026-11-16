@@ -52,7 +52,7 @@ ARRAY_ID=$(sbatch --parsable ${PARTITION:+--partition=$PARTITION} <<EOF
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=${CORES}
-#SBATCH --mem-per-cpu=4000
+#SBATCH --mem-per-cpu=1000
 #SBATCH --time=01:00:00
 #SBATCH --output=logs/${NAME}.%A_%a.out
 #SBATCH --error=logs/${NAME}.%A_%a.err
@@ -71,7 +71,7 @@ MERGE_ID=$(sbatch --parsable ${PARTITION:+--partition=$PARTITION} --dependency=a
 #!/bin/bash
 #SBATCH --job-name=${NAME}_merge
 #SBATCH --ntasks=1
-#SBATCH --mem=4000
+#SBATCH --mem=2000
 #SBATCH --time=00:30:00
 #SBATCH --output=logs/${NAME}_merge.%j.out
 #SBATCH --error=logs/${NAME}_merge.%j.err

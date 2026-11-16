@@ -47,8 +47,8 @@ sbatch ${PARTITION:+--partition=$PARTITION} ${NODES:+--nodes=$NODES} <<EOF
 # One worker per task. Do NOT set --cpus-per-task=1: parallelly then counts
 # only one worker per node.
 #SBATCH --ntasks-per-node=${CORES}
-# MB per worker; raise if graphs/k are larger.
-#SBATCH --mem-per-cpu=4000
+# MB per worker (measured peak ~200 MB at k=4, sim_n=1e5).
+#SBATCH --mem-per-cpu=1000
 # Wall-clock limit (k=4 grid ~40 min on 16 cores).
 #SBATCH --time=12:00:00
 #SBATCH --output=logs/${NAME}.%j.out
