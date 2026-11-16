@@ -139,7 +139,8 @@ On the command line, positional numbers replace `MP` (the marginal powers), `key
 arguments override `ARGS` (last value wins), and `PARTITION` (Slurm) / `QUEUE` (LSF)
 select the partition/queue (unset = the cluster's default; list them with `sinfo -s` /
 `bqueues`). `NODES` and `CORES` (per node) set the allocation of the single-job
-scripts (default 4 × 16). On Slurm, time, account, memory etc. can be overridden with
+scripts (default: no node count, i.e. 1 node, × 16 cores; keep `CORES` ≤ the CPUs per
+node). On Slurm, time, account, memory etc. can be overridden with
 the matching `SBATCH_*` environment variable (e.g. `SBATCH_TIMELIMIT`). The job is named
 and logged as `gogt_k<k>` under `logs/`.
 

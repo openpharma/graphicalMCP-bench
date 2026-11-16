@@ -3,7 +3,7 @@
 # LSF submission for scripts/gridSearchGraph.R -- one job, all metrics
 # =============================================================================
 # Usage (from any directory, on an LSF login node):
-#     bash cluster/lsf/submit.sh                                # er, dp, cp together
+#     bash cluster/lsf/submit.sh                                # 1 host x 16 cores
 #     bash cluster/lsf/submit.sh 0.9 0.8 0.7 w_step=0.02        # marginal powers + overrides
 #     bash cluster/lsf/submit.sh metrics_file=metrics/custom.R  # + custom metrics
 #     QUEUE=short bash cluster/lsf/submit.sh
@@ -27,9 +27,16 @@ set -euo pipefail
 MP="0.90 0.80 0.70 0.60"
 ARGS="w_step=0.1 g_step=0.25 sim_n=10000 top_n=50 allow_large_k=TRUE out_dir=results"
 QUEUE="${QUEUE:-}"                 # empty = the cluster's default queue
-NODES="${NODES:-4}"                # workers = NODES x CORES
+NODES="${NODES:-}"                 # empty = one host
 CORES="${CORES:-16}"               # cores (workers) per host
 source "$(dirname "${BASH_SOURCE[0]}")/../args.sh"
+
+# LSF has no node count: total slots / slots per host = NODES hosts.
+if [ -n "$NODES" ]; then
+  SLOTS=$((NODES * CORES)); SPAN="span[ptile=${CORES}]"
+else
+  SLOTS=${CORES}; SPAN="span[hosts=1]"
+fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 K=$(wc -w <<< "$MP")
@@ -41,11 +48,10 @@ mkdir -p logs results
 bsub ${QUEUE:+-q $QUEUE} <<EOF
 #!/bin/bash
 #BSUB -J ${NAME}
-# LSF has no node count: total slots / slots per host = NODES hosts.
-#BSUB -n $((NODES * CORES))
-#BSUB -R "span[ptile=${CORES}]"
+#BSUB -n ${SLOTS}
+#BSUB -R "${SPAN}"
 #BSUB -R "rusage[mem=4000]"       # MB per slot; raise if graphs/k are larger
-#BSUB -W 12:00                    # wall-clock limit HH:MM (k=4 grid ~10-20 min on 64 cores)
+#BSUB -W 12:00                    # wall-clock limit HH:MM (k=4 grid ~40 min on 16 cores)
 #BSUB -o logs/${NAME}.%J.out
 #BSUB -e logs/${NAME}.%J.err
 

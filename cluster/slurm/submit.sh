@@ -3,7 +3,7 @@
 # Slurm submission for scripts/gridSearchGraph.R -- one job, all metrics
 # =============================================================================
 # Usage (from any directory, on a Slurm login node):
-#     bash cluster/slurm/submit.sh                                # er, dp, cp together
+#     bash cluster/slurm/submit.sh                                # 1 node x 16 cores
 #     bash cluster/slurm/submit.sh 0.9 0.8 0.7 w_step=0.02        # marginal powers + overrides
 #     bash cluster/slurm/submit.sh metrics_file=metrics/custom.R  # + custom metrics
 #     PARTITION=short SBATCH_TIMELIMIT=02:00:00 bash cluster/slurm/submit.sh
@@ -30,8 +30,8 @@ set -euo pipefail
 MP="0.90 0.80 0.70 0.60"
 ARGS="w_step=0.1 g_step=0.25 sim_n=10000 top_n=50 allow_large_k=TRUE out_dir=results"
 PARTITION="${PARTITION:-}"         # empty = the cluster's default partition
-NODES="${NODES:-4}"                # workers = NODES x CORES
-CORES="${CORES:-16}"               # cores (workers) per node
+NODES="${NODES:-}"                 # empty = no node count requested (Slurm uses 1)
+CORES="${CORES:-16}"               # cores (workers) per node; <= CPUs/node in sinfo
 source "$(dirname "${BASH_SOURCE[0]}")/../args.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -41,16 +41,15 @@ cd "$ROOT"
 # Slurm does not create the --output/--error directory.
 mkdir -p logs results
 
-sbatch ${PARTITION:+--partition=$PARTITION} <<EOF
+sbatch ${PARTITION:+--partition=$PARTITION} ${NODES:+--nodes=$NODES} <<EOF
 #!/bin/bash
 #SBATCH --job-name=${NAME}
 # One worker per task. Do NOT set --cpus-per-task=1: parallelly then counts
 # only one worker per node.
-#SBATCH --nodes=${NODES}
 #SBATCH --ntasks-per-node=${CORES}
 # MB per worker; raise if graphs/k are larger.
 #SBATCH --mem-per-cpu=4000
-# Wall-clock limit (k=4 grid ~10-20 min on 64 cores).
+# Wall-clock limit (k=4 grid ~40 min on 16 cores).
 #SBATCH --time=12:00:00
 #SBATCH --output=logs/${NAME}.%j.out
 #SBATCH --error=logs/${NAME}.%j.err
