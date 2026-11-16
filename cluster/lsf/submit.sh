@@ -3,15 +3,19 @@
 # LSF submission for scripts/gridSearchGraph.R -- one job, all metrics
 # =============================================================================
 # Usage (from any directory, on an LSF login node):
+#     bash cluster/lsf/submit.sh scenario=my_id                 # a scenario file
 #     bash cluster/lsf/submit.sh                                # 1 host x 16 cores
 #     bash cluster/lsf/submit.sh 0.9 0.8 0.7 w_step=0.02        # marginal powers + overrides
 #     bash cluster/lsf/submit.sh metrics_file=metrics/custom.R  # + custom metrics
 #     QUEUE=short bash cluster/lsf/submit.sh
 #     NODES=2 CORES=32 bash cluster/lsf/submit.sh               # 2 hosts x 32 cores
 #
-# Positional numbers replace MP; key=value arguments override ARGS (last value
-# wins; values must not contain spaces). The job is named gogt_k<k> and logs to
-# logs/gogt_k<k>.<id>.out. Edit the #BSUB lines for other resources.
+# With scenario=<id> the scenario file sets everything and MP / ARGS below are
+# ignored; other key=value arguments still override it. Otherwise positional
+# numbers replace MP and key=value arguments override ARGS (last value
+# wins; values must not contain spaces). The job is named gogt_<id> (or
+# gogt_k<k>) and logs to logs/<name>.<id>.out. Edit the #BSUB lines for other
+# resources.
 #
 # The R script auto-detects the LSF allocation via parallelly::availableWorkers()
 # (reads LSB_MCPU_HOSTS / LSB_HOSTS) and spawns a PSOCK cluster spanning all
@@ -39,8 +43,6 @@ else
 fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-K=$(wc -w <<< "$MP")
-NAME="gogt_k${K}"
 cd "$ROOT"
 # LSF does not create the -o/-e directory, so it must exist before submission.
 mkdir -p logs results

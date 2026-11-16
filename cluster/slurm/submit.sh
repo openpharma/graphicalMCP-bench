@@ -3,16 +3,19 @@
 # Slurm submission for scripts/gridSearchGraph.R -- one job, all metrics
 # =============================================================================
 # Usage (from any directory, on a Slurm login node):
+#     bash cluster/slurm/submit.sh scenario=my_id                 # a scenario file
 #     bash cluster/slurm/submit.sh                                # 1 node x 16 cores
 #     bash cluster/slurm/submit.sh 0.9 0.8 0.7 w_step=0.02        # marginal powers + overrides
 #     bash cluster/slurm/submit.sh metrics_file=metrics/custom.R  # + custom metrics
 #     PARTITION=short SBATCH_TIMELIMIT=02:00:00 bash cluster/slurm/submit.sh
 #     NODES=2 CORES=32 bash cluster/slurm/submit.sh               # 2 nodes x 32 cores
 #
-# Positional numbers replace MP; key=value arguments override ARGS (last value
+# With scenario=<id> the scenario file sets everything and MP / ARGS below are
+# ignored; other key=value arguments still override it. Otherwise positional
+# numbers replace MP and key=value arguments override ARGS (last value
 # wins; values must not contain spaces). Time, account, memory, ... can be
-# overridden with SBATCH_* environment variables. The job is named gogt_k<k>
-# and logs to logs/gogt_k<k>.<id>.out.
+# overridden with SBATCH_* environment variables. The job is named gogt_<id>
+# (or gogt_k<k>) and logs to logs/<name>.<id>.out.
 #
 # The R script auto-detects the allocation via parallelly::availableWorkers()
 # (reads SLURM_JOB_NODELIST / SLURM_JOB_CPUS_PER_NODE / SLURM_CPUS_PER_TASK) and
@@ -36,8 +39,6 @@ CORES="${CORES:-16}"               # cores (workers) per node; <= CPUs/node in s
 source "$(dirname "${BASH_SOURCE[0]}")/../args.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-K=$(wc -w <<< "$MP")
-NAME="gogt_k${K}"
 cd "$ROOT"
 # Slurm does not create the --output/--error directory.
 mkdir -p logs results

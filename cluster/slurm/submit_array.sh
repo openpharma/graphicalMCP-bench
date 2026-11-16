@@ -7,6 +7,7 @@
 # shards into exactly the result a single run would give.
 #
 # Usage (from any directory, on a Slurm login node):
+#     bash cluster/slurm/submit_array.sh scenario=my_id                 # a scenario file
 #     bash cluster/slurm/submit_array.sh                                # all shards + merge
 #     bash cluster/slurm/submit_array.sh 0.9 0.8 0.7 w_step=0.02        # marginal powers + overrides
 #     bash cluster/slurm/submit_array.sh metrics_file=metrics/custom.R  # + custom metrics
@@ -16,8 +17,10 @@
 #
 # There is no node count: each task takes CORES cores on one node and Slurm
 # places the tasks; MAX_RUNNING caps how many run at the same time.
-# Positional numbers replace MP; key=value arguments override ARGS for both the
-# shards and the merge (last value wins; values must not contain spaces). Time,
+# With scenario=<id> the scenario file sets everything and MP / ARGS below are
+# ignored. Otherwise positional numbers replace MP. key=value arguments
+# override ARGS / the scenario for both the shards and the merge (last value
+# wins; values must not contain spaces). Time,
 # account, memory, ... can be overridden with SBATCH_* environment variables.
 # Shards go to <out_dir>/shards/, the merged result to <out_dir>/ under the same
 # name as a single run.
@@ -38,8 +41,6 @@ MAX_RUNNING="${MAX_RUNNING:-}"     # empty = no limit
 source "$(dirname "${BASH_SOURCE[0]}")/../args.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-K=$(wc -w <<< "$MP")
-NAME="gogt_k${K}"
 cd "$ROOT"
 # Slurm does not create the --output/--error directory.
 mkdir -p logs results
