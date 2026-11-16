@@ -2,7 +2,7 @@
 # Bonferroni equality constraint for nloptr
 # =============================================================================
 # Vendored verbatim from optimalMCP R/constraintBonf.R (roxygen @export tags
-# dropped). Required by optim_w_er() in R/expectedRejections.R.
+# dropped). Required by optim_w_er() in expectedRejections.R.
 # =============================================================================
 
 #' Bonferroni constraint: the weights must sum to 1.

@@ -3,7 +3,7 @@
 # =============================================================================
 #
 # This standalone script validates `expected_rejections()` (see
-# R/expectedRejections.R) against a Monte-Carlo simulation from the
+# expectedRejections.R in this folder) against a Monte-Carlo simulation from the
 # graphicalMCP package.
 #
 # WHY THEY SHOULD AGREE
@@ -20,23 +20,26 @@
 #   - power$power_local[i]      ==  Phi(mu_i - z_{w_i alpha})   (per hypothesis)
 #
 # USAGE
-#   Rscript scripts/compareExpectedRejections.R
+#   Rscript optimizer/optimalMCP/compareExpectedRejections.R
 # (works from any working directory)
 # =============================================================================
 
 # --- Dependencies ------------------------------------------------------------
 local({
   this <- grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)
-  root <- if (length(this)) {
-    dirname(dirname(normalizePath(sub("^--file=", "", this[1]), winslash = "/")))
+  dir  <- if (length(this)) {
+    dirname(normalizePath(sub("^--file=", "", this[1]), winslash = "/"))
   } else {
     getwd()
   }
-  source(file.path(root, "R", "rootPath.R"), local = globalenv())
+  while (!file.exists(file.path(dir, "R", "rootPath.R")) && dirname(dir) != dir) {
+    dir <- dirname(dir)
+  }
+  source(file.path(dir, "R", "rootPath.R"), local = globalenv())
 })
-gogt_source("R", "utils.R")
-gogt_source("R", "constraintBonf.R")
-gogt_source("R", "expectedRejections.R")
+gogt_source("optimizer", "optimalMCP", "utils.R")
+gogt_source("optimizer", "optimalMCP", "constraintBonf.R")
+gogt_source("optimizer", "optimalMCP", "expectedRejections.R")
 
 if (!requireNamespace("graphicalMCP", quietly = TRUE)) {
   stop("Package 'graphicalMCP' is required for this comparison. ",

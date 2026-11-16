@@ -9,9 +9,9 @@
 # a single-step weighted-Bonferroni test, assuming the k hypotheses are
 # INDEPENDENT.
 #
-# DEPENDENCIES: R/utils.R (solve_eta, inverse_derivative) and R/constraintBonf.R
-# (constraint_bonferroni, constraint_bonferroni_grad) must be sourced first;
-# optim_w_er() additionally needs the nloptr package.
+# DEPENDENCIES: utils.R (solve_eta, inverse_derivative) and constraintBonf.R
+# (constraint_bonferroni, constraint_bonferroni_grad) in this folder must be
+# sourced first; optim_w_er() additionally needs the nloptr package.
 #
 # MATH
 # ----
