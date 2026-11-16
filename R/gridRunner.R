@@ -4,8 +4,7 @@
 # Used by scripts/gridSearchGraph.R, which supplies a default config list and
 # calls gogt_main() on it.
 #
-# DEPENDENCIES: R/rootPath.R, R/gridCore.R, R/utils.R, R/expectedRejections.R,
-# R/analyticDP.R.
+# DEPENDENCIES: R/rootPath.R, R/analytic.R, R/gridCore.R, R/report.R.
 # =============================================================================
 
 #' Default grid-search configuration.
@@ -22,6 +21,10 @@ gogt_config <- function(...) {
     # Marginal power per hypothesis, one numeric vector per k in run_k. Names
     # must be "k3", "k4", "k5" and the vector length must equal k.
     mp_list        = list(k3 = c(0.90, 0.80, 0.70)),
+    # Correlation of the test statistics: NULL = independence, one number =
+    # equicorrelation, or a k x k matrix. It only enters the simulated
+    # p-values; the tests stay weighted Bonferroni.
+    corr           = NULL,
 
     ## -- Metrics (all evaluated together on every candidate) ------------------
     # Named list of function(R) -> one number to maximize; R is the sim_n x k
@@ -36,10 +39,13 @@ gogt_config <- function(...) {
     ## -- Grid resolution ------------------------------------------------------
     w_step         = 0.05,        # step for the hypothesis-weight simplex
     g_step         = 0.1,         # step for the transition-weight simplex (per row)
-    # Optionally FIX the hypothesis weights instead of gridding over them. When a
-    # numeric vector (length k, summing to 1) is supplied the weight simplex is
-    # skipped and only G is searched; results are tagged "fixedw".
+
+    ## -- Constraints (NA = free, a number = fixed; fixed values must lie on the grid)
+    # Length-k weight vector. Fully specified, the weight simplex is skipped
+    # and only G is searched. Ad-hoc runs are tagged "fixedw".
     w_fixed        = NULL,
+    # k x k transition matrix (diagonal NA or 0). Ad-hoc runs are tagged "fixedg".
+    G_fixed        = NULL,
 
     ## -- Monte-Carlo / runtime ------------------------------------------------
     sim_n          = 1e4,         # MC replications, shared by all candidates
@@ -47,6 +53,10 @@ gogt_config <- function(...) {
     # Workers are auto-detected via parallelly::availableWorkers() (LSF/Slurm-aware).
     # Set max_workers to cap the count, or NULL to use every allocated core.
     max_workers    = NULL,
+
+    ## -- Re-evaluation of the kept graphs on independent p-values -------------
+    validate_n     = 1e5,         # MC replications; 0 = skip
+    validate_seed  = NULL,        # NULL = seed + 1; must differ from seed
 
     ## -- Output ---------------------------------------------------------------
     top_n          = 50L,         # graphs kept per metric (their union is saved)
@@ -62,7 +72,11 @@ gogt_config <- function(...) {
 
     ## -- Safety gate for large k ----------------------------------------------
     allow_large_k  = FALSE,       # set TRUE only after coarsening the grid for k>3
-    max_candidates = 1e8          # hard stop above this many candidates
+    max_candidates = 1e8,         # hard stop above this many candidates
+
+    ## -- Set by scenario=<id> (see scenarios/_template.R) ---------------------
+    scenario       = NULL,        # list(id, file, title, author, date, description)
+    overrides      = NULL         # key=value arguments applied on top of it
   )
   over <- list(...)
   cfg[names(over)] <- over
@@ -73,7 +87,8 @@ gogt_config <- function(...) {
 #' Apply command-line overrides to a config.
 #'
 #' Positional numeric args are the marginal powers (their count defines k).
-#' key=value args override individual config fields.
+#' key=value args override individual config fields. scenario=<id|path> is
+#' loaded first, whatever its position, so the other keys override it.
 #'
 #' @param cfg config list from gogt_config()
 #' @param args character vector, defaults to the Rscript arguments
@@ -83,6 +98,18 @@ gogt_parse_cli <- function(cfg, args = commandArgs(trailingOnly = TRUE)) {
   is_kv <- grepl("=", args, fixed = TRUE)
   pos   <- args[!is_kv]
   kv    <- args[is_kv]
+
+  is_sc <- sub("=.*$", "", kv) == "scenario"
+  if (any(is_sc)) {
+    if (length(pos)) {
+      stop("With scenario= the marginal powers come from the scenario file; ",
+           "drop the positional arguments: ", paste(pos, collapse = " "))
+    }
+    cfg <- gogt_load_scenario(cfg, sub("^[^=]*=", "", tail(kv[is_sc], 1L)))
+    kv  <- kv[!is_sc]
+    cfg$overrides <- kv[!sub("=.*$", "", kv) %in%
+                          c("shard", "merge_shards", "max_workers", "save_results")]
+  }
 
   if (length(pos)) {
     mp_cli <- suppressWarnings(as.numeric(pos))
@@ -114,7 +141,16 @@ gogt_parse_cli <- function(cfg, args = commandArgs(trailingOnly = TRUE)) {
     else if (key == "sim_n")          cfg$sim_n          <- conv(key, val, as.numeric)
     else if (key == "w_step")         cfg$w_step         <- conv(key, val, as.numeric)
     else if (key == "g_step")         cfg$g_step         <- conv(key, val, as.numeric)
-    else if (key == "w_fixed")        cfg$w_fixed        <- conv(key, split_csv(val), as.numeric)
+    else if (key == "w_fixed") {
+      tok <- split_csv(val)
+      cfg$w_fixed <- suppressWarnings(as.numeric(tok))
+      if (anyNA(cfg$w_fixed[toupper(tok) != "NA"])) {
+        stop("Invalid value for CLI option w_fixed: '", val, "'")
+      }
+    }
+    else if (key == "corr")           cfg$corr           <- conv(key, val, as.numeric)
+    else if (key == "validate_n")     cfg$validate_n     <- conv(key, val, as.numeric)
+    else if (key == "validate_seed")  cfg$validate_seed  <- conv(key, val, as.integer)
     else if (key == "seed")           cfg$seed           <- conv(key, val, as.integer)
     else if (key == "top_n")          cfg$top_n          <- conv(key, val, as.integer)
     else if (key == "out_dir")        cfg$out_dir        <- val
@@ -133,12 +169,108 @@ gogt_parse_cli <- function(cfg, args = commandArgs(trailingOnly = TRUE)) {
         stop("shard must be i/N with 1 <= i <= N; got '", val, "'")
       }
     }
-    else stop("Unknown CLI option '", key, "'. Valid: alpha, sim_n, w_step, g_step, ",
-              "w_fixed, seed, top_n, out_dir, stem_prefix, allow_large_k, ",
+    else stop("Unknown CLI option '", key, "'. Valid: scenario, alpha, corr, ",
+              "sim_n, w_step, g_step, w_fixed, seed, top_n, validate_n, ",
+              "validate_seed, out_dir, stem_prefix, allow_large_k, ",
               "max_candidates, save_results, max_workers, metrics, metrics_file, ",
               "shard, merge_shards.")
   }
   cfg
+}
+
+
+# Fields a scenario file may set; anything else is an error.
+GOGT_SCENARIO_FIELDS <- c(
+  "title", "author", "date", "description",
+  "alpha", "mp", "corr", "metrics", "w_fixed", "G_fixed",
+  "w_step", "g_step", "sim_n", "seed", "top_n", "validate_n", "validate_seed",
+  "allow_large_k", "max_candidates"
+)
+
+#' Path of a scenario given as an id (scenarios/<id>.R) or a file path.
+gogt_scenario_path <- function(x) {
+  if (!grepl("[/\\\\]|\\.R$", x)) {
+    path <- file.path(gogt_root(), "scenarios", paste0(x, ".R"))
+  } else {
+    path <- if (file.exists(x)) x else file.path(gogt_root(), x)
+  }
+  if (!file.exists(path)) stop("Scenario not found: ", x)
+  normalizePath(path, winslash = "/")
+}
+
+#' Load a scenario file into a config.
+#'
+#' The file must define `scenario`, a named list (see scenarios/_template.R).
+#' Its id is the file name; results go to results/<id>/.
+#'
+#' @param cfg config list from gogt_config()
+#' @param x scenario id or path
+#' @return the updated config list
+gogt_load_scenario <- function(cfg, x) {
+  path <- gogt_scenario_path(x)
+  id   <- sub("\\.R$", "", basename(path))
+  if (!grepl("^[a-z0-9][a-z0-9_]*$", id)) {
+    stop("Scenario file names must match [a-z0-9][a-z0-9_]*.R; got '",
+         basename(path), "'.")
+  }
+  env <- new.env(parent = globalenv())
+  sys.source(path, envir = env)
+  sc <- env$scenario
+  if (!is.list(sc) || is.null(names(sc)) || any(!nzchar(names(sc)))) {
+    stop(path, " must define `scenario`, a named list.")
+  }
+  bad <- setdiff(names(sc), GOGT_SCENARIO_FIELDS)
+  if (length(bad)) {
+    stop("Unknown field(s) in ", basename(path), ": ", paste(bad, collapse = ", "),
+         ". Allowed: ", paste(GOGT_SCENARIO_FIELDS, collapse = ", "), ".")
+  }
+  for (f in c("title", "author", "alpha", "mp")) {
+    if (is.null(sc[[f]])) stop("Scenario ", id, " must set `", f, "`.")
+  }
+  if (any(sc$mp <= 0 | sc$mp >= 1)) stop("Scenario ", id, ": mp must be in (0, 1).")
+
+  k <- length(sc$mp)
+  cfg$run_k   <- k
+  cfg$mp_list <- stats::setNames(list(sc$mp), paste0("k", k))
+  run <- setdiff(intersect(names(sc), GOGT_SCENARIO_FIELDS),
+                 c("title", "author", "date", "description", "mp"))
+  cfg[run] <- sc[run]
+  cfg$scenario <- list(
+    id          = id,
+    file        = file.path("scenarios", basename(path)),
+    title       = sc$title,
+    author      = sc$author,
+    date        = if (is.null(sc$date)) "" else as.character(sc$date),
+    description = if (is.null(sc$description)) "" else sc$description
+  )
+  cfg$out_dir <- file.path("results", id)
+  cat(sprintf("[scenario] %s: %s (k = %d)\n", id, sc$title, k))
+  cfg
+}
+
+
+#' Correlation matrix of a run.
+#'
+#' @param corr NULL (independence), one number (equicorrelation) or k x k matrix
+#' @param k number of hypotheses
+#' @return validated k x k correlation matrix
+gogt_corr <- function(corr, k) {
+  if (is.null(corr)) return(diag(k))
+  if (length(corr) == 1L) {
+    corr <- matrix(corr, k, k)
+    diag(corr) <- 1
+  }
+  if (!is.matrix(corr) || any(dim(corr) != k)) {
+    stop(sprintf("corr must be one number or a %d x %d matrix.", k, k))
+  }
+  corr <- unname(corr)
+  if (!isSymmetric(corr) || any(diag(corr) != 1) || any(abs(corr) > 1)) {
+    stop("corr must be symmetric with unit diagonal and entries in [-1, 1].")
+  }
+  if (min(eigen(corr, symmetric = TRUE, only.values = TRUE)$values) < -1e-8) {
+    stop("corr is not positive semi-definite.")
+  }
+  corr
 }
 
 
@@ -185,20 +317,14 @@ gogt_check_deps <- function() {
 #' Analytic value of a default metric for a single-step weighted-Bonferroni test.
 #'
 #' This is the G = 0 case: no alpha is propagated, so the graphical procedure
-#' reduces to the closed forms in R/expectedRejections.R / R/analyticDP.R.
+#' reduces to the closed forms in R/analytic.R.
 #'
-#' @return numeric, or NULL when the analytic reference is unavailable
+#' @return numeric, or NULL for metrics without a closed form
 gogt_analytic <- function(w, alpha, mp, metric) {
   switch(metric,
-    er = if (exists("expected_rejections")) {
-      expected_rejections(w, alpha, mp, test = "Bonferroni")
-    },
-    dp = if (exists("disjunctive_power_indep")) {
-      disjunctive_power_indep(w, alpha, mp)
-    },
-    cp = if (exists("conjunctive_power_indep")) {
-      conjunctive_power_indep(w, alpha, mp)
-    },
+    er = expected_rejections_single(w, alpha, mp),
+    dp = disjunctive_power_indep(w, alpha, mp),
+    cp = conjunctive_power_indep(w, alpha, mp),
     NULL
   )
 }
@@ -244,7 +370,8 @@ verify_engine <- function(k, alpha, mp, n_graphs = 5L, sim_n = 2000L,
 #'
 #' Runs on the search's own p-values. Stops when a difference exceeds 4 MC
 #' standard errors, bounded by sqrt(k) / (2 sqrt(sim_n)) under independence.
-verify_zero_transition <- function(p, alpha, mp, metrics) {
+#' E[R] only depends on the marginals; DP / CP are checked only when indep.
+verify_zero_transition <- function(p, alpha, mp, metrics, indep = TRUE) {
   k <- ncol(p)
   w <- rep(1 / k, k)
   own <- names(metrics)[vapply(names(metrics), function(x)
@@ -253,6 +380,11 @@ verify_zero_transition <- function(p, alpha, mp, metrics) {
   sim <- eval_graph(w, matrix(0, k, k), p, alpha, metrics[own])
   tol <- 2 * sqrt(k / nrow(p))
   for (x in own) {
+    if (!indep && x != "er") {
+      cat(sprintf("[verify k=%d] G=0 %s: skipped (analytic value assumes independence)\n",
+                  k, x))
+      next
+    }
     ana <- gogt_analytic(w, alpha, mp, x)
     if (is.null(ana)) next
     cat(sprintf("[verify k=%d] G=0 %s: analytic=%.5f  simulated=%.5f  diff=%+.5f\n",
@@ -330,17 +462,29 @@ gogt_main <- function(cfg) {
     if (is.null(mp)) stop("No marginal powers defined in mp_list for ", key, ".")
 
     # Tag output files with the marginal powers so runs don't clash.
-    tag <- paste0("mp", paste(sprintf("%02d", round(mp * 100)), collapse = "_"))
+    corr <- gogt_corr(cfg$corr, k)
+    tag  <- paste0("mp", paste(sprintf("%02d", round(mp * 100)), collapse = "_"))
+    if (any(corr != diag(k))) {
+      tag <- paste0(tag, if (length(cfg$corr) == 1L) {
+        paste0("_rho", sub("-", "m", round(cfg$corr * 100), fixed = TRUE))
+      } else "_corr")
+    }
     if (!is.null(cfg$w_fixed)) tag <- paste0(tag, "_fixedw")
-    stem <- gogt_stem(cfg$stem_prefix, k, tag)
+    if (!is.null(cfg$G_fixed)) tag <- paste0(tag, "_fixedg")
+    stem <- if (is.null(cfg$scenario)) gogt_stem(cfg$stem_prefix, k, tag) else cfg$scenario$id
 
     if (merging) {
-      res <- merge_shards(shard_dir, stem, cfg$merge_shards)
+      res  <- merge_shards(shard_dir, stem, cfg$merge_shards)
+      miss <- setdiff(res$metrics, names(metrics))
+      if (length(miss)) {
+        stop("Shards use metric(s) not defined in this run: ",
+             paste(miss, collapse = ", "), ". Pass the same metric arguments.")
+      }
     } else {
       check_metrics(metrics, k)
       verify_engine(k, cfg$alpha, mp)
-      p <- simulate_pvalues(k, cfg$alpha, mp, cfg$sim_n, cfg$seed)
-      verify_zero_transition(p, cfg$alpha, mp, metrics)
+      p <- simulate_pvalues(k, cfg$alpha, mp, cfg$sim_n, cfg$seed, corr)
+      verify_zero_transition(p, cfg$alpha, mp, metrics, indep = all(corr == diag(k)))
 
       res <- grid_search_k(
         p              = p,
@@ -352,11 +496,13 @@ gogt_main <- function(cfg) {
         allow_large_k  = cfg$allow_large_k,
         max_candidates = cfg$max_candidates,
         w_fixed        = cfg$w_fixed,
+        G_fixed        = cfg$G_fixed,
         metrics        = metrics,
         shard          = cfg$shard
       )
       res$settings$mp   <- mp
       res$settings$seed <- cfg$seed
+      res$settings$corr <- corr
 
       if (!is.null(cfg$shard)) {
         dir.create(shard_dir, recursive = TRUE, showWarnings = FALSE)
@@ -368,14 +514,54 @@ gogt_main <- function(cfg) {
         next
       }
     }
+
+    if (isTRUE(cfg$validate_n > 0)) {
+      s      <- res$settings
+      v_seed <- if (is.null(cfg$validate_seed)) s$seed + 1L else cfg$validate_seed
+      if (v_seed == s$seed) stop("validate_seed must differ from seed.")
+      p_val <- simulate_pvalues(k, s$alpha, s$mp, cfg$validate_n, v_seed, s$corr)
+      res   <- validate_best(res, p_val, s$alpha, metrics)
+      res$validation$seed <- v_seed
+      cat(sprintf("[k=%d] kept graphs re-evaluated on %s simulations (seed %d)\n",
+                  k, format(cfg$validate_n, big.mark = ",", scientific = FALSE),
+                  v_seed))
+    }
+    res$meta <- gogt_run_meta(cfg, metrics[res$metrics])
     results[[key]] <- res
 
     if (cfg$save_results) {
       save_best(res, out_dir, stem)
-      cat(sprintf("[k=%d] results written to %s.rds / _top.csv\n",
+      cat(sprintf("[k=%d] results written to %s.rds / _top.csv / _best.csv\n",
                   k, file.path(out_dir, stem)))
+      if (!is.null(cfg$scenario) &&
+          identical(cfg$out_dir, file.path("results", cfg$scenario$id))) {
+        gogt_render_docs(cfg$scenario$id)
+      }
     }
     report_best(res)
   }
   invisible(results)
+}
+
+
+#' Provenance stored with a result and shown in its doc.
+#'
+#' @param metrics the metric functions of the run (their bodies are recorded)
+gogt_run_meta <- function(cfg, metrics) {
+  commit <- tryCatch(suppressWarnings(system2(
+    "git", c("-C", shQuote(gogt_root()), "rev-parse", "--short", "HEAD"),
+    stdout = TRUE, stderr = FALSE)), error = function(e) character(0))
+  list(
+    scenario     = cfg$scenario,
+    overrides    = cfg$overrides,
+    run_date     = format(Sys.Date()),
+    git_commit   = if (length(commit) == 1L && is.null(attr(commit, "status"))) {
+      commit
+    } else NA_character_,
+    r_version    = paste(R.version$major, R.version$minor, sep = "."),
+    graphicalMCP = as.character(utils::packageVersion("graphicalMCP")),
+    metric_defs  = vapply(metrics, function(f)
+      paste(trimws(deparse(body(f), width.cutoff = 500L)), collapse = " "),
+      character(1))
+  )
 }

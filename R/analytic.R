@@ -1,14 +1,24 @@
 # =============================================================================
-# Analytic disjunctive / conjunctive power under independence
+# Closed forms for the single-step weighted-Bonferroni test (G = 0)
 # =============================================================================
-# Closed forms for the single-step weighted-Bonferroni test with INDEPENDENT
-# test statistics. They mirror optimalMCP's disjunctive_power() restricted to
-# `test = "Bonferroni"` and `rho = 0`, which is exactly the regime the grid
-# search simulates (sim_corr = diag(k)). Restricting to independence keeps the
-# cross-check free of mvtnorm, so compute nodes only need graphicalMCP.
+# Reference values for the G = 0 cross-check of the grid search. E[R] holds
+# for any correlation; DP / CP assume INDEPENDENT test statistics, so with
+# correlation the cross-check skips them. Independence keeps the check free
+# of mvtnorm, so compute nodes only need graphicalMCP.
 #
-# DEPENDENCIES: R/utils.R (solve_eta).
+# Self-contained on purpose: the grid search must not depend on optimizer/.
 # =============================================================================
+
+#' Non-centrality parameter implied by a marginal power.
+#'
+#' \eqn{\eta = \Phi^{-1}(1 - \alpha) - \Phi^{-1}(1 - mp)}
+#'
+#' @param alpha numeric, one-sided type I error
+#' @param mp numeric vector of marginal powers
+#' @return numeric vector of non-centrality parameters
+noncentrality <- function(alpha, mp) {
+  qnorm(1 - alpha) - qnorm(1 - mp)
+}
 
 #' Per-hypothesis rejection probability of a single-step weighted-Bonferroni test.
 #'
@@ -23,8 +33,17 @@ local_rejection_prob <- function(w, alpha, mp) {
   if (length(w) != length(mp)) {
     stop("lengths of weights and marginal powers need match")
   }
-  mus <- vapply(mp, function(p) solve_eta(alpha = alpha, p = p), numeric(1))
+  mus <- noncentrality(alpha, mp)
   pnorm(mus - qnorm(1 - w * alpha))
+}
+
+
+#' Expected number of rejections (any correlation).
+#'
+#' @inheritParams local_rejection_prob
+#' @return numeric in [0, k]
+expected_rejections_single <- function(w, alpha, mp) {
+  sum(local_rejection_prob(w, alpha, mp))
 }
 
 

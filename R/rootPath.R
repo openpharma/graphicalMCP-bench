@@ -11,37 +11,47 @@
 #'
 #' Resolution order:
 #'   1. GOGT_ROOT environment variable (explicit override).
-#'   2. The `--file=` argument of the running Rscript (scripts/<name>.R -> ..).
+#'   2. The `--file=` argument of the running Rscript.
 #'   3. `ofile` of the calling frame, set by `source()` in interactive sessions.
-#'   4. The working directory, walked upwards until an R/gridCore.R is found.
+#'   4. The working directory.
+#' From 2-4 the directory is walked upwards until an R/gridCore.R is found, so
+#' scripts may live at any depth (scripts/, optimizer/<method>/, ...).
 #'
 #' @return absolute path to the repository root
 gogt_root <- function() {
   env <- Sys.getenv("GOGT_ROOT", "")
   if (nzchar(env)) return(normalizePath(env, winslash = "/", mustWork = TRUE))
 
+  find_up <- function(dir) {
+    dir <- normalizePath(dir, winslash = "/", mustWork = FALSE)
+    repeat {
+      if (file.exists(file.path(dir, "R", "gridCore.R"))) return(dir)
+      parent <- dirname(dir)
+      if (identical(parent, dir)) return(NULL)
+      dir <- parent
+    }
+  }
+
   file_arg <- grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)
   if (length(file_arg)) {
     script <- normalizePath(sub("^--file=", "", file_arg[1]),
                             winslash = "/", mustWork = FALSE)
-    if (file.exists(script)) return(dirname(dirname(script)))
+    if (file.exists(script) && !is.null(root <- find_up(dirname(script)))) {
+      return(root)
+    }
   }
 
   for (n in seq_len(sys.nframe())) {
     ofile <- tryCatch(get("ofile", envir = sys.frame(n), inherits = FALSE),
                       error = function(e) NULL)
-    if (is.character(ofile) && length(ofile) == 1L && file.exists(ofile)) {
-      return(dirname(dirname(normalizePath(ofile, winslash = "/"))))
+    if (is.character(ofile) && length(ofile) == 1L && file.exists(ofile) &&
+        !is.null(root <- find_up(dirname(ofile)))) {
+      return(root)
     }
   }
 
-  dir <- normalizePath(getwd(), winslash = "/")
-  repeat {
-    if (file.exists(file.path(dir, "R", "gridCore.R"))) return(dir)
-    parent <- dirname(dir)
-    if (identical(parent, dir)) break
-    dir <- parent
-  }
+  root <- find_up(getwd())
+  if (!is.null(root)) return(root)
   stop("Cannot locate the gogt repository root. Set the GOGT_ROOT environment ",
        "variable or run from inside the repository.")
 }

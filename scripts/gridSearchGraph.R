@@ -3,12 +3,13 @@
 # Grid search for the best graphs under several metrics at once
 # =============================================================================
 #
-# Brute-force grid search over multiplicity graphs (w, G) for k INDEPENDENT
-# hypotheses. Every candidate is run through the sequentially-rejective
-# weighted-Bonferroni graphical procedure on one shared matrix of simulated
-# p-values, and ALL metrics are evaluated on the same rejections. The top_n
-# graphs per metric are kept. See R/gridCore.R for the search machinery and
-# the feasibility warning about k > 3.
+# Brute-force grid search over multiplicity graphs (w, G) for k hypotheses
+# (independent or correlated). Every candidate is run through the
+# sequentially-rejective weighted-Bonferroni graphical procedure on one shared
+# matrix of simulated p-values, and ALL metrics are evaluated on the same
+# rejections. The top_n graphs per metric are kept and re-evaluated on
+# independent p-values. See R/gridCore.R for the search machinery and the
+# feasibility warning about k > 3.
 #
 # METRICS  (function(R) -> number to maximize; R = sim_n x k logical rejections)
 #   er  expected number of rejections
@@ -17,13 +18,17 @@
 #   Custom: add to `metrics` below, or metrics_file=<file.R> defining `metrics`.
 #
 # USAGE
+#     Rscript scripts/gridSearchGraph.R scenario=<id> [key=value ...]
 #     Rscript scripts/gridSearchGraph.R <mp_1> <mp_2> <mp_3> [key=value ...]
-#   Positional numeric args are the marginal powers (their count defines k):
+#   scenario=<id> loads scenarios/<id>.R (see scenarios/_template.R), writes
+#   results/<id>/ and docs/scenarios/<id>.md. Without it, positional numeric
+#   args are the marginal powers (their count defines k):
 #     Rscript scripts/gridSearchGraph.R 0.90 0.80 0.70 sim_n=10000
-#   Optional key=value overrides: alpha, sim_n, w_step, g_step, w_fixed, seed,
-#   top_n, out_dir, stem_prefix, allow_large_k, max_candidates, save_results,
-#   max_workers, metrics (comma list), metrics_file, shard, merge_shards.
-#   Fixed weights (skip the w grid): w_fixed=0.5,0.3,0.2 -> only G is searched.
+#   Optional key=value overrides: alpha, corr, sim_n, w_step, g_step, w_fixed,
+#   seed, top_n, validate_n, validate_seed, out_dir, stem_prefix,
+#   allow_large_k, max_candidates, save_results, max_workers, metrics (comma
+#   list), metrics_file, shard, merge_shards.
+#   Fixed weights: w_fixed=0.5,0.3,0.2 (only G searched) or w_fixed=0.5,NA,NA.
 #   Job arrays: shard=i/N searches one shard; merge_shards=N combines them.
 #   Works from any working directory.
 #
@@ -45,12 +50,10 @@ local({
   }
   source(file.path(root, "R", "rootPath.R"), local = globalenv())
 })
-gogt_source("R", "utils.R")
-gogt_source("R", "constraintBonf.R")
-gogt_source("R", "expectedRejections.R")
-gogt_source("R", "analyticDP.R")
+gogt_source("R", "analytic.R")
 gogt_source("R", "gridCore.R")
 gogt_source("R", "gridRunner.R")
+gogt_source("R", "report.R")
 
 
 # =============================================================================
