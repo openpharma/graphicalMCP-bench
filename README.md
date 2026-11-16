@@ -153,7 +153,8 @@ cluster. Remote workers are started with:
   nodes is blocked.
 - **Slurm**: `cluster/slurm/srun-rsh.sh` (an `srun --overlap` job step per worker), so
   no ssh is needed and workers inherit the job environment. Needs Slurm ≥ 20.11.
-  Don't request `--cpus-per-task=1`: parallelly then counts one worker per node.
+  Each node gets one task with `CORES` CPUs (`--cpus-per-task`), which parallelly uses
+  as the worker count; some clusters reject `--ntasks-per-node` > 1.
 
 See the notes at the end of each script for the reverse-tunnel caveat.
 

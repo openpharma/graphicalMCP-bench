@@ -15,7 +15,8 @@
 # and logs to logs/gogt_k<k>.<id>.out.
 #
 # The R script auto-detects the allocation via parallelly::availableWorkers()
-# (reads SLURM_JOB_NODELIST / SLURM_JOB_CPUS_PER_NODE) and spawns a PSOCK
+# (reads SLURM_JOB_NODELIST / SLURM_JOB_CPUS_PER_NODE / SLURM_CPUS_PER_TASK) and
+# spawns a PSOCK
 # cluster spanning all allocated cores on every node. Remote workers are
 # started with srun (cluster/slurm/srun-rsh.sh), so no ssh between nodes is
 # needed.
@@ -41,12 +42,12 @@ cd "$ROOT"
 # Slurm does not create the --output/--error directory.
 mkdir -p logs results
 
-sbatch ${PARTITION:+--partition=$PARTITION} ${NODES:+--nodes=$NODES} <<EOF
+sbatch ${PARTITION:+--partition=$PARTITION} ${NODES:+--nodes=$NODES --ntasks-per-node=1} <<EOF
 #!/bin/bash
 #SBATCH --job-name=${NAME}
-# One worker per task. Do NOT set --cpus-per-task=1: parallelly then counts
-# only one worker per node.
-#SBATCH --ntasks-per-node=${CORES}
+# One task per node with CORES CPUs; parallelly takes SLURM_CPUS_PER_TASK as the
+# worker count per node.
+#SBATCH --cpus-per-task=${CORES}
 # MB per worker (measured peak ~200 MB at k=4, sim_n=1e5).
 #SBATCH --mem-per-cpu=1000
 # Wall-clock limit (k=4 grid ~40 min on 16 cores).
