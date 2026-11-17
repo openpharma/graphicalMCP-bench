@@ -207,7 +207,8 @@ bash cluster/slurm/submit.sh scenario=my_id            # a scenario file defines
 bash cluster/lsf/submit.sh                             # LSF:   er, dp, cp in one job
 bash cluster/slurm/submit.sh                           # Slurm: er, dp, cp in one job
 bash cluster/slurm/submit.sh 0.9 0.8 0.7 w_step=0.02 metrics_file=my_metrics.R
-PARTITION=short SBATCH_TIMELIMIT=02:00:00 bash cluster/slurm/submit.sh
+PARTITION=short WALLTIME=02:00:00 bash cluster/slurm/submit.sh
+QUEUE=short WALLTIME=2:00 bash cluster/lsf/submit.sh
 NODES=2 CORES=32 bash cluster/slurm/submit.sh          # 2 nodes x 32 cores = 64 workers
 ```
 
@@ -218,8 +219,9 @@ arguments override `ARGS` (last value wins), and `PARTITION` (Slurm) / `QUEUE` (
 select the partition/queue (unset = the cluster's default; list them with `sinfo -s` /
 `bqueues`). `NODES` and `CORES` (per node) set the allocation of the single-job
 scripts (default: no node count, i.e. 1 node, × 16 cores; keep `CORES` ≤ the CPUs per
-node). On Slurm, time, account, memory etc. can be overridden with
-the matching `SBATCH_*` environment variable (e.g. `SBATCH_TIMELIMIT`). The job is named
+node). `WALLTIME` sets the time limit: `HH:MM` on LSF (default `8:00`),
+`[D-]HH:MM:SS` on Slurm (default `08:00:00`). On Slurm, account, memory etc. can be
+overridden with the matching `SBATCH_*` environment variable. The job is named
 and logged as `gogt_k<k>` under `logs/`.
 
 Workers are auto-detected via `parallelly::availableWorkers()`, which reads the
@@ -246,11 +248,13 @@ bash cluster/slurm/submit_array.sh             # or cluster/lsf/submit_array.sh
 bash cluster/slurm/submit_array.sh 0.9 0.8 0.7 sim_n=20000   # same arguments as above
 N_SHARDS=32 CORES=2 bash cluster/slurm/submit_array.sh       # array size / cores per task
 MAX_RUNNING=4 bash cluster/slurm/submit_array.sh             # at most 4 tasks at once
+WALLTIME=00:20:00 MERGE_WALLTIME=00:15:00 bash cluster/slurm/submit_array.sh
 ARRAY=3,7 bash cluster/slurm/submit_array.sh   # re-run shards 3 and 7, then merge again
 ```
 
 Arrays have no node count: each task takes `CORES` cores on one node and the scheduler
-places the tasks; `MAX_RUNNING` caps how many run at the same time.
+places the tasks; `MAX_RUNNING` caps how many run at the same time. `WALLTIME` is the
+limit per task and `MERGE_WALLTIME` that of the merge job (both default 8 h).
 
 Each array task runs `gridSearchGraph.R ... shard=i/N`: it searches every `N`-th
 transition matrix starting at `i` on its own node's cores and writes

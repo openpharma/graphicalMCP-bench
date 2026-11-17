@@ -7,15 +7,15 @@
 #     bash cluster/slurm/submit.sh                                # 1 node x 16 cores
 #     bash cluster/slurm/submit.sh 0.9 0.8 0.7 w_step=0.02        # marginal powers + overrides
 #     bash cluster/slurm/submit.sh metrics_file=metrics/custom.R  # + custom metrics
-#     PARTITION=short SBATCH_TIMELIMIT=02:00:00 bash cluster/slurm/submit.sh
+#     PARTITION=short WALLTIME=02:00:00 bash cluster/slurm/submit.sh
 #     NODES=2 CORES=32 bash cluster/slurm/submit.sh               # 2 nodes x 32 cores
 #
 # With scenario=<id> the scenario file sets everything and MP / ARGS below are
 # ignored; other key=value arguments still override it. Otherwise positional
 # numbers replace MP and key=value arguments override ARGS (last value
-# wins; values must not contain spaces). Time, account, memory, ... can be
-# overridden with SBATCH_* environment variables. The job is named gogt_<id>
-# (or gogt_k<k>) and logs to logs/<name>.<id>.out.
+# wins; values must not contain spaces). WALLTIME sets the time limit; account,
+# memory, ... can be overridden with SBATCH_* environment variables. The job is
+# named gogt_<id> (or gogt_k<k>) and logs to logs/<name>.<id>.out.
 #
 # The R script auto-detects the allocation via parallelly::availableWorkers()
 # (reads SLURM_JOB_NODELIST / SLURM_JOB_CPUS_PER_NODE / SLURM_CPUS_PER_TASK) and
@@ -36,6 +36,7 @@ ARGS="w_step=0.1 g_step=0.25 sim_n=10000 top_n=50 allow_large_k=TRUE out_dir=res
 PARTITION="${PARTITION:-}"         # empty = the cluster's default partition
 NODES="${NODES:-}"                 # empty = no node count requested (Slurm uses 1)
 CORES="${CORES:-16}"               # cores (workers) per node; <= CPUs/node in sinfo
+WALLTIME="${WALLTIME:-08:00:00}"   # [D-]HH:MM:SS; the k=4 grid takes ~40 min on 16 cores
 source "$(dirname "${BASH_SOURCE[0]}")/../args.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -51,8 +52,7 @@ sbatch ${PARTITION:+--partition=$PARTITION} ${NODES:+--nodes=$NODES --ntasks-per
 #SBATCH --cpus-per-task=${CORES}
 # MB per worker (measured peak ~200 MB at k=4, sim_n=1e5).
 #SBATCH --mem-per-cpu=1000
-# Wall-clock limit (k=4 grid ~40 min on 16 cores).
-#SBATCH --time=12:00:00
+#SBATCH --time=${WALLTIME}
 #SBATCH --output=logs/${NAME}.%j.out
 #SBATCH --error=logs/${NAME}.%j.err
 

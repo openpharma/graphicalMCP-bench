@@ -14,14 +14,16 @@
 #     ARRAY=3,7 bash cluster/slurm/submit_array.sh                      # re-run shards 3, 7 + merge
 #     N_SHARDS=32 CORES=2 PARTITION=short bash cluster/slurm/submit_array.sh
 #     MAX_RUNNING=4 bash cluster/slurm/submit_array.sh                  # at most 4 tasks at once
+#     WALLTIME=00:20:00 MERGE_WALLTIME=00:15:00 bash cluster/slurm/submit_array.sh
 #
 # There is no node count: each task takes CORES cores on one node and Slurm
 # places the tasks; MAX_RUNNING caps how many run at the same time.
 # With scenario=<id> the scenario file sets everything and MP / ARGS below are
 # ignored. Otherwise positional numbers replace MP. key=value arguments
 # override ARGS / the scenario for both the shards and the merge (last value
-# wins; values must not contain spaces). Time,
-# account, memory, ... can be overridden with SBATCH_* environment variables.
+# wins; values must not contain spaces). WALLTIME / MERGE_WALLTIME set the time
+# limits; account, memory, ... can be overridden with SBATCH_* environment
+# variables.
 # Shards go to <out_dir>/shards/, the merged result to <out_dir>/ under the same
 # name as a single run.
 # =============================================================================
@@ -38,6 +40,8 @@ CORES="${CORES:-4}"
 PARTITION="${PARTITION:-}"         # empty = the cluster's default partition
 ARRAY="${ARRAY:-1-${N_SHARDS}}"
 MAX_RUNNING="${MAX_RUNNING:-}"     # empty = no limit
+WALLTIME="${WALLTIME:-08:00:00}"   # [D-]HH:MM:SS per task
+MERGE_WALLTIME="${MERGE_WALLTIME:-08:00:00}"
 source "$(dirname "${BASH_SOURCE[0]}")/../args.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -54,7 +58,7 @@ ARRAY_ID=$(sbatch --parsable ${PARTITION:+--partition=$PARTITION} <<EOF
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=${CORES}
 #SBATCH --mem-per-cpu=1000
-#SBATCH --time=01:00:00
+#SBATCH --time=${WALLTIME}
 #SBATCH --output=logs/${NAME}.%A_%a.out
 #SBATCH --error=logs/${NAME}.%A_%a.err
 
@@ -73,7 +77,7 @@ MERGE_ID=$(sbatch --parsable ${PARTITION:+--partition=$PARTITION} --dependency=a
 #SBATCH --job-name=${NAME}_merge
 #SBATCH --ntasks=1
 #SBATCH --mem=2000
-#SBATCH --time=00:30:00
+#SBATCH --time=${MERGE_WALLTIME}
 #SBATCH --output=logs/${NAME}_merge.%j.out
 #SBATCH --error=logs/${NAME}_merge.%j.err
 

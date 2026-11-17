@@ -14,6 +14,7 @@
 #     ARRAY=3,7 bash cluster/lsf/submit_array.sh                      # re-run shards 3, 7 + merge
 #     N_SHARDS=32 CORES=2 QUEUE=short bash cluster/lsf/submit_array.sh
 #     MAX_RUNNING=4 bash cluster/lsf/submit_array.sh                  # at most 4 elements at once
+#     WALLTIME=0:20 MERGE_WALLTIME=0:15 bash cluster/lsf/submit_array.sh
 #
 # There is no node count: each element takes CORES slots on one host and LSF
 # places the elements; MAX_RUNNING caps how many run at the same time.
@@ -37,6 +38,8 @@ CORES="${CORES:-4}"
 QUEUE="${QUEUE:-}"                 # empty = the cluster's default queue
 ARRAY="${ARRAY:-1-${N_SHARDS}}"
 MAX_RUNNING="${MAX_RUNNING:-}"     # empty = no limit
+WALLTIME="${WALLTIME:-8:00}"       # HH:MM per element
+MERGE_WALLTIME="${MERGE_WALLTIME:-8:00}"
 source "$(dirname "${BASH_SOURCE[0]}")/../args.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -51,7 +54,7 @@ OUT=$(bsub ${QUEUE:+-q $QUEUE} <<EOF
 #BSUB -n ${CORES}
 #BSUB -R "span[hosts=1]"
 #BSUB -R "rusage[mem=1000]"
-#BSUB -W 1:00
+#BSUB -W ${WALLTIME}
 #BSUB -o logs/${NAME}.%J_%I.out
 #BSUB -e logs/${NAME}.%J_%I.err
 
@@ -73,7 +76,7 @@ bsub ${QUEUE:+-q $QUEUE} <<EOF
 #BSUB -w "done(${ARRAY_ID})"
 #BSUB -n 1
 #BSUB -R "rusage[mem=2000]"
-#BSUB -W 0:30
+#BSUB -W ${MERGE_WALLTIME}
 #BSUB -o logs/${NAME}_merge.%J.out
 #BSUB -e logs/${NAME}_merge.%J.err
 

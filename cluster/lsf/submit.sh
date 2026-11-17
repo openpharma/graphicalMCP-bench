@@ -7,7 +7,7 @@
 #     bash cluster/lsf/submit.sh                                # 1 host x 16 cores
 #     bash cluster/lsf/submit.sh 0.9 0.8 0.7 w_step=0.02        # marginal powers + overrides
 #     bash cluster/lsf/submit.sh metrics_file=metrics/custom.R  # + custom metrics
-#     QUEUE=short bash cluster/lsf/submit.sh
+#     QUEUE=short WALLTIME=2:00 bash cluster/lsf/submit.sh
 #     NODES=2 CORES=32 bash cluster/lsf/submit.sh               # 2 hosts x 32 cores
 #
 # With scenario=<id> the scenario file sets everything and MP / ARGS below are
@@ -33,6 +33,7 @@ ARGS="w_step=0.1 g_step=0.25 sim_n=10000 top_n=50 allow_large_k=TRUE out_dir=res
 QUEUE="${QUEUE:-}"                 # empty = the cluster's default queue
 NODES="${NODES:-}"                 # empty = one host
 CORES="${CORES:-16}"               # cores (workers) per host
+WALLTIME="${WALLTIME:-8:00}"       # HH:MM; the k=4 grid takes ~40 min on 16 cores
 source "$(dirname "${BASH_SOURCE[0]}")/../args.sh"
 
 # LSF has no node count: total slots / slots per host = NODES hosts.
@@ -53,7 +54,7 @@ bsub ${QUEUE:+-q $QUEUE} <<EOF
 #BSUB -n ${SLOTS}
 #BSUB -R "${SPAN}"
 #BSUB -R "rusage[mem=1000]"       # MB per slot (measured peak ~200 MB at k=4, sim_n=1e5)
-#BSUB -W 12:00                    # wall-clock limit HH:MM (k=4 grid ~40 min on 16 cores)
+#BSUB -W ${WALLTIME}
 #BSUB -o logs/${NAME}.%J.out
 #BSUB -e logs/${NAME}.%J.err
 
