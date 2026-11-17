@@ -1,7 +1,10 @@
-# gogt — graph optimization ground truth
+# graphicalmcp-bench
 
-Brute-force grid search over multiplicity graphs, used as **ground truth** for
-analytic/numeric graph optimizers (see [Optimizers](#optimizers)).
+Case studies for comparing optimizers of multiplicity graphs, built on the R package
+`graphicalMCP` (not `gMCP`). Each case is a *scenario*, and a brute-force grid search
+gives its **reference solution**, against which analytic/numeric graph optimizers are
+compared (see [Optimizers](#optimizers)). The reference is optimal only on the grid and
+up to Monte-Carlo error, so an optimizer that searches continuously may beat it.
 
 A multiplicity graph is a pair `(w, G)`: initial hypothesis weights `w` (summing to 1)
 and a row-stochastic transition matrix `G` (zero diagonal, rows summing to 1). This
@@ -13,8 +16,8 @@ and reports the best graphs for each metric.
 Tests are weighted Bonferroni. The test statistics may be correlated; the correlation
 only changes the simulated p-values.
 
-Shared examples live in `scenarios/` (one file each), and their results are presented in
-[docs/](docs/README.md). To add one, see [CONTRIBUTING.md](CONTRIBUTING.md).
+The scenarios live in `scenarios/` (one file each), and their reference results are
+presented in [docs/](docs/README.md). To add one, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Scenarios
 
@@ -64,7 +67,7 @@ can only be set in a scenario file or in the `cfg` block of the script.
 
 A metric is any `function(R)` returning one number to **maximize**, where `R` is the
 `sim_n × k` logical rejection matrix (columns `H1..Hk`, one row per simulation).
-Defaults (`GOGT_METRICS` in `R/gridCore.R`):
+Defaults (`BENCH_METRICS` in `R/gridCore.R`):
 
 | key  | metric               | definition                    |
 | ---- | -------------------- | ----------------------------- |
@@ -78,7 +81,7 @@ DP ties across `G` are broken by the other metrics.
 Custom metrics, either in the `cfg` block of `scripts/gridSearchGraph.R`:
 
 ```r
-metrics = c(GOGT_METRICS, list(h1h2 = function(R) mean(R[, "H1"] & R[, "H2"])))
+metrics = c(BENCH_METRICS, list(h1h2 = function(R) mean(R[, "H1"] & R[, "H2"])))
 ```
 
 or in a file passed as `metrics_file=<path.R>`, which must define a named list
@@ -116,7 +119,7 @@ designed.
 ```
 CONTRIBUTING.md        how to add a scenario
 R/
-  rootPath.R           gogt_root() / gogt_source(): cwd-independent path resolution
+  rootPath.R           bench_root() / bench_source(): cwd-independent path resolution
   analytic.R           closed-form E[R] (any correlation) and DP/CP (independence) for G = 0
   gridCore.R           metrics, constrained grids, rejection engine, grid_search_k,
                        re-evaluation, saving
@@ -177,7 +180,7 @@ Pass `w_fixed=0.5,0.3,0.2` to skip the weight simplex and search only `G`, or
 `_fixedg` / `_rho<xx>` / `_corr` so they do not overwrite unconstrained or independent
 results. Use `stem_prefix` to keep runs with different metric sets apart.
 
-Defaults live in the `cfg <- gogt_config(...)` block of the script.
+Defaults live in the `cfg <- bench_config(...)` block of the script.
 
 ### How a run works
 
@@ -213,7 +216,7 @@ NODES=2 CORES=32 bash cluster/slurm/submit.sh          # 2 nodes x 32 cores = 64
 ```
 
 Defaults (`MP`, `ARGS`, partition/queue, resources) are set at the top of each script.
-With `scenario=<id>`, `MP` and `ARGS` are ignored and the job is named `gogt_<id>`.
+With `scenario=<id>`, `MP` and `ARGS` are ignored and the job is named `bench_<id>`.
 On the command line, positional numbers replace `MP` (the marginal powers), `key=value`
 arguments override `ARGS` (last value wins), and `PARTITION` (Slurm) / `QUEUE` (LSF)
 select the partition/queue (unset = the cluster's default; list them with `sinfo -s` /
@@ -222,7 +225,7 @@ scripts (default: no node count, i.e. 1 node, × 16 cores; keep `CORES` ≤ the 
 node). `WALLTIME` sets the time limit: `HH:MM` on LSF (default `8:00`),
 `[D-]HH:MM:SS` on Slurm (default `08:00:00`). On Slurm, account, memory etc. can be
 overridden with the matching `SBATCH_*` environment variable. The job is named
-and logged as `gogt_k<k>` under `logs/`.
+and logged as `bench_k<k>` under `logs/`.
 
 Workers are auto-detected via `parallelly::availableWorkers()`, which reads the
 allocation (LSF: `LSB_MCPU_HOSTS` / `LSB_HOSTS`; Slurm: `SLURM_JOB_NODELIST` /

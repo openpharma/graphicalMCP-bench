@@ -2,7 +2,7 @@
 # Grid-search runner: configuration, CLI parsing, verification, main loop
 # =============================================================================
 # Used by scripts/gridSearchGraph.R, which supplies a default config list and
-# calls gogt_main() on it.
+# calls bench_main() on it.
 #
 # DEPENDENCIES: R/rootPath.R, R/analytic.R, R/gridCore.R, R/report.R.
 # =============================================================================
@@ -10,8 +10,8 @@
 #' Default grid-search configuration.
 #'
 #' @param ... overrides; each replaces the default field as a whole
-#' @return named list consumed by gogt_main()
-gogt_config <- function(...) {
+#' @return named list consumed by bench_main()
+bench_config <- function(...) {
   cfg <- list(
     ## -- Problem definition ---------------------------------------------------
     alpha          = 0.025,       # one-sided family-wise type I error
@@ -29,7 +29,7 @@ gogt_config <- function(...) {
     ## -- Metrics (all evaluated together on every candidate) ------------------
     # Named list of function(R) -> one number to maximize; R is the sim_n x k
     # logical rejection matrix (columns H1..Hk).
-    metrics        = GOGT_METRICS,
+    metrics        = BENCH_METRICS,
     # Optional R file defining `metrics`, a named list merged into the above.
     metrics_file   = NULL,
     # Optional subset / order of metric names (NULL = all). The first one
@@ -90,10 +90,10 @@ gogt_config <- function(...) {
 #' key=value args override individual config fields. scenario=<id|path> is
 #' loaded first, whatever its position, so the other keys override it.
 #'
-#' @param cfg config list from gogt_config()
+#' @param cfg config list from bench_config()
 #' @param args character vector, defaults to the Rscript arguments
 #' @return the updated config list
-gogt_parse_cli <- function(cfg, args = commandArgs(trailingOnly = TRUE)) {
+bench_parse_cli <- function(cfg, args = commandArgs(trailingOnly = TRUE)) {
   if (length(args) == 0L) return(cfg)
   is_kv <- grepl("=", args, fixed = TRUE)
   pos   <- args[!is_kv]
@@ -105,7 +105,7 @@ gogt_parse_cli <- function(cfg, args = commandArgs(trailingOnly = TRUE)) {
       stop("With scenario= the marginal powers come from the scenario file; ",
            "drop the positional arguments: ", paste(pos, collapse = " "))
     }
-    cfg <- gogt_load_scenario(cfg, sub("^[^=]*=", "", tail(kv[is_sc], 1L)))
+    cfg <- bench_load_scenario(cfg, sub("^[^=]*=", "", tail(kv[is_sc], 1L)))
     kv  <- kv[!is_sc]
     cfg$overrides <- kv[!sub("=.*$", "", kv) %in%
                           c("shard", "merge_shards", "max_workers", "save_results")]
@@ -180,7 +180,7 @@ gogt_parse_cli <- function(cfg, args = commandArgs(trailingOnly = TRUE)) {
 
 
 # Fields a scenario file may set; anything else is an error.
-GOGT_SCENARIO_FIELDS <- c(
+BENCH_SCENARIO_FIELDS <- c(
   "title", "author", "date", "description",
   "alpha", "mp", "corr", "metrics", "w_fixed", "G_fixed",
   "w_step", "g_step", "sim_n", "seed", "top_n", "validate_n", "validate_seed",
@@ -188,11 +188,11 @@ GOGT_SCENARIO_FIELDS <- c(
 )
 
 #' Path of a scenario given as an id (scenarios/<id>.R) or a file path.
-gogt_scenario_path <- function(x) {
+bench_scenario_path <- function(x) {
   if (!grepl("[/\\\\]|\\.R$", x)) {
-    path <- file.path(gogt_root(), "scenarios", paste0(x, ".R"))
+    path <- file.path(bench_root(), "scenarios", paste0(x, ".R"))
   } else {
-    path <- if (file.exists(x)) x else file.path(gogt_root(), x)
+    path <- if (file.exists(x)) x else file.path(bench_root(), x)
   }
   if (!file.exists(path)) stop("Scenario not found: ", x)
   normalizePath(path, winslash = "/")
@@ -203,11 +203,11 @@ gogt_scenario_path <- function(x) {
 #' The file must define `scenario`, a named list (see scenarios/_template.R).
 #' Its id is the file name; results go to results/<id>/.
 #'
-#' @param cfg config list from gogt_config()
+#' @param cfg config list from bench_config()
 #' @param x scenario id or path
 #' @return the updated config list
-gogt_load_scenario <- function(cfg, x) {
-  path <- gogt_scenario_path(x)
+bench_load_scenario <- function(cfg, x) {
+  path <- bench_scenario_path(x)
   id   <- sub("\\.R$", "", basename(path))
   if (!grepl("^[a-z0-9][a-z0-9_]*$", id)) {
     stop("Scenario file names must match [a-z0-9][a-z0-9_]*.R; got '",
@@ -219,10 +219,10 @@ gogt_load_scenario <- function(cfg, x) {
   if (!is.list(sc) || is.null(names(sc)) || any(!nzchar(names(sc)))) {
     stop(path, " must define `scenario`, a named list.")
   }
-  bad <- setdiff(names(sc), GOGT_SCENARIO_FIELDS)
+  bad <- setdiff(names(sc), BENCH_SCENARIO_FIELDS)
   if (length(bad)) {
     stop("Unknown field(s) in ", basename(path), ": ", paste(bad, collapse = ", "),
-         ". Allowed: ", paste(GOGT_SCENARIO_FIELDS, collapse = ", "), ".")
+         ". Allowed: ", paste(BENCH_SCENARIO_FIELDS, collapse = ", "), ".")
   }
   for (f in c("title", "author", "alpha", "mp")) {
     if (is.null(sc[[f]])) stop("Scenario ", id, " must set `", f, "`.")
@@ -232,7 +232,7 @@ gogt_load_scenario <- function(cfg, x) {
   k <- length(sc$mp)
   cfg$run_k   <- k
   cfg$mp_list <- stats::setNames(list(sc$mp), paste0("k", k))
-  run <- setdiff(intersect(names(sc), GOGT_SCENARIO_FIELDS),
+  run <- setdiff(intersect(names(sc), BENCH_SCENARIO_FIELDS),
                  c("title", "author", "date", "description", "mp"))
   cfg[run] <- sc[run]
   cfg$scenario <- list(
@@ -254,7 +254,7 @@ gogt_load_scenario <- function(cfg, x) {
 #' @param corr NULL (independence), one number (equicorrelation) or k x k matrix
 #' @param k number of hypotheses
 #' @return validated k x k correlation matrix
-gogt_corr <- function(corr, k) {
+bench_corr <- function(corr, k) {
   if (is.null(corr)) return(diag(k))
   if (length(corr) == 1L) {
     corr <- matrix(corr, k, k)
@@ -278,11 +278,11 @@ gogt_corr <- function(corr, k) {
 #'
 #' @param cfg config list
 #' @return named list of metric functions
-gogt_resolve_metrics <- function(cfg) {
+bench_resolve_metrics <- function(cfg) {
   metrics <- cfg$metrics
   if (!is.null(cfg$metrics_file)) {
     path <- cfg$metrics_file
-    if (!file.exists(path)) path <- file.path(gogt_root(), path)
+    if (!file.exists(path)) path <- file.path(bench_root(), path)
     if (!file.exists(path)) stop("metrics_file not found: ", cfg$metrics_file)
     env <- new.env(parent = globalenv())
     sys.source(path, envir = env)
@@ -304,7 +304,7 @@ gogt_resolve_metrics <- function(cfg) {
 
 
 #' Check that the required packages are installed.
-gogt_check_deps <- function() {
+bench_check_deps <- function() {
   for (pkg in c("graphicalMCP", "parallel", "parallelly")) {
     if (!requireNamespace(pkg, quietly = TRUE)) {
       stop("Package '", pkg, "' is required. ",
@@ -320,7 +320,7 @@ gogt_check_deps <- function() {
 #' reduces to the closed forms in R/analytic.R.
 #'
 #' @return numeric, or NULL for metrics without a closed form
-gogt_analytic <- function(w, alpha, mp, metric) {
+bench_analytic <- function(w, alpha, mp, metric) {
   switch(metric,
     er = expected_rejections_single(w, alpha, mp),
     dp = disjunctive_power_indep(w, alpha, mp),
@@ -375,7 +375,7 @@ verify_zero_transition <- function(p, alpha, mp, metrics, indep = TRUE) {
   k <- ncol(p)
   w <- rep(1 / k, k)
   own <- names(metrics)[vapply(names(metrics), function(x)
-    identical(metrics[[x]], GOGT_METRICS[[x]]), logical(1))]
+    identical(metrics[[x]], BENCH_METRICS[[x]]), logical(1))]
   if (!length(own)) return(invisible(NULL))
   sim <- eval_graph(w, matrix(0, k, k), p, alpha, metrics[own])
   tol <- 2 * sqrt(k / nrow(p))
@@ -385,7 +385,7 @@ verify_zero_transition <- function(p, alpha, mp, metrics, indep = TRUE) {
                   k, x))
       next
     }
-    ana <- gogt_analytic(w, alpha, mp, x)
+    ana <- bench_analytic(w, alpha, mp, x)
     if (is.null(ana)) next
     cat(sprintf("[verify k=%d] G=0 %s: analytic=%.5f  simulated=%.5f  diff=%+.5f\n",
                 k, x, ana, sim[[x]], sim[[x]] - ana))
@@ -400,7 +400,7 @@ verify_zero_transition <- function(p, alpha, mp, metrics, indep = TRUE) {
 
 #' Fast pipeline smoke test on a coarse grid (seconds, not the full run).
 smoke_test <- function(alpha = 0.025, mp = c(0.8, 0.7, 0.9),
-                       metrics = GOGT_METRICS) {
+                       metrics = BENCH_METRICS) {
   p <- simulate_pvalues(length(mp), alpha, mp, sim_n = 2e3, seed = 1)
   res <- grid_search_k(p, alpha, w_step = 0.25, g_step = 0.5, top_n = 5,
                        allow_large_k = TRUE, max_candidates = Inf,
@@ -436,11 +436,11 @@ merge_shards <- function(shard_dir, stem, n) {
 #' <out_dir>/shards/; with cfg$merge_shards set, existing shards are merged
 #' instead of searching.
 #'
-#' @param cfg config list from gogt_config() / gogt_parse_cli()
+#' @param cfg config list from bench_config() / bench_parse_cli()
 #' @return invisibly, a named list of results per k
-gogt_main <- function(cfg) {
-  gogt_check_deps()
-  metrics <- gogt_resolve_metrics(cfg)
+bench_main <- function(cfg) {
+  bench_check_deps()
+  metrics <- bench_resolve_metrics(cfg)
   merging <- !is.null(cfg$merge_shards)
   if (merging && !is.null(cfg$shard)) {
     stop("Use either shard= or merge_shards=, not both.")
@@ -448,7 +448,7 @@ gogt_main <- function(cfg) {
 
   out_dir <- cfg$out_dir
   if (!isTRUE(grepl("^(/|\\\\|[A-Za-z]:)", out_dir))) {
-    out_dir <- file.path(gogt_root(), out_dir)
+    out_dir <- file.path(bench_root(), out_dir)
   }
   shard_dir <- file.path(out_dir, "shards")
 
@@ -462,7 +462,7 @@ gogt_main <- function(cfg) {
     if (is.null(mp)) stop("No marginal powers defined in mp_list for ", key, ".")
 
     # Tag output files with the marginal powers so runs don't clash.
-    corr <- gogt_corr(cfg$corr, k)
+    corr <- bench_corr(cfg$corr, k)
     tag  <- paste0("mp", paste(sprintf("%02d", round(mp * 100)), collapse = "_"))
     if (any(corr != diag(k))) {
       tag <- paste0(tag, if (length(cfg$corr) == 1L) {
@@ -471,7 +471,7 @@ gogt_main <- function(cfg) {
     }
     if (!is.null(cfg$w_fixed)) tag <- paste0(tag, "_fixedw")
     if (!is.null(cfg$G_fixed)) tag <- paste0(tag, "_fixedg")
-    stem <- if (is.null(cfg$scenario)) gogt_stem(cfg$stem_prefix, k, tag) else cfg$scenario$id
+    stem <- if (is.null(cfg$scenario)) bench_stem(cfg$stem_prefix, k, tag) else cfg$scenario$id
 
     if (merging) {
       res  <- merge_shards(shard_dir, stem, cfg$merge_shards)
@@ -526,7 +526,7 @@ gogt_main <- function(cfg) {
                   k, format(cfg$validate_n, big.mark = ",", scientific = FALSE),
                   v_seed))
     }
-    res$meta <- gogt_run_meta(cfg, metrics[res$metrics])
+    res$meta <- bench_run_meta(cfg, metrics[res$metrics])
     results[[key]] <- res
 
     if (cfg$save_results) {
@@ -535,7 +535,7 @@ gogt_main <- function(cfg) {
                   k, file.path(out_dir, stem)))
       if (!is.null(cfg$scenario) &&
           identical(cfg$out_dir, file.path("results", cfg$scenario$id))) {
-        gogt_render_docs(cfg$scenario$id)
+        bench_render_docs(cfg$scenario$id)
       }
     }
     report_best(res)
@@ -547,9 +547,9 @@ gogt_main <- function(cfg) {
 #' Provenance stored with a result and shown in its doc.
 #'
 #' @param metrics the metric functions of the run (their bodies are recorded)
-gogt_run_meta <- function(cfg, metrics) {
+bench_run_meta <- function(cfg, metrics) {
   commit <- tryCatch(suppressWarnings(system2(
-    "git", c("-C", shQuote(gogt_root()), "rev-parse", "--short", "HEAD"),
+    "git", c("-C", shQuote(bench_root()), "rev-parse", "--short", "HEAD"),
     stdout = TRUE, stderr = FALSE)), error = function(e) character(0))
   list(
     scenario     = cfg$scenario,

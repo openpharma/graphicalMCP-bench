@@ -13,8 +13,8 @@
 # With scenario=<id> the scenario file sets everything and MP / ARGS below are
 # ignored; other key=value arguments still override it. Otherwise positional
 # numbers replace MP and key=value arguments override ARGS (last value
-# wins; values must not contain spaces). The job is named gogt_<id> (or
-# gogt_k<k>) and logs to logs/<name>.<id>.out. Edit the #BSUB lines for other
+# wins; values must not contain spaces). The job is named bench_<id> (or
+# bench_k<k>) and logs to logs/<name>.<id>.out. Edit the #BSUB lines for other
 # resources.
 #
 # The R script auto-detects the LSF allocation via parallelly::availableWorkers()
@@ -64,7 +64,7 @@ set -euo pipefail
 module load R 2>/dev/null || true
 
 cd "${ROOT}"
-export GOGT_ROOT="${ROOT}"
+export BENCH_ROOT="${ROOT}"
 
 Rscript scripts/gridSearchGraph.R ${MP} ${ARGS} ${EXTRA}
 EOF

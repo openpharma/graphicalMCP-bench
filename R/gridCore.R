@@ -12,7 +12,7 @@
 # and a coarser step for the transition weights (g_step).
 #
 # A metric is any function(R) -> single number to MAXIMIZE, where R is the
-# sim_n x k logical rejection matrix (columns H1..Hk). GOGT_METRICS holds the
+# sim_n x k logical rejection matrix (columns H1..Hk). BENCH_METRICS holds the
 # defaults; custom metrics plug in the same way.
 #
 # The rejection engine is a vectorised form of graphicalMCP's own Bonferroni
@@ -35,7 +35,7 @@
 
 
 # Default metrics, all evaluated on the same rejection matrix R.
-GOGT_METRICS <- list(
+BENCH_METRICS <- list(
   er = function(R) sum(R) / nrow(R),                 # expected rejections
   dp = function(R) mean(rowSums(R) > 0),             # disjunctive power
   cp = function(R) mean(rowSums(R) == ncol(R))       # conjunctive power
@@ -311,7 +311,7 @@ graph_rejections <- function(w, G, p, alpha) {
 #' All metric values of one graph (w, G) on a shared p-value matrix.
 #'
 #' @return named numeric vector, one entry per metric
-eval_graph <- function(w, G, p, alpha, metrics = GOGT_METRICS) {
+eval_graph <- function(w, G, p, alpha, metrics = BENCH_METRICS) {
   R <- graph_rejections(w, G, p, alpha)
   vapply(metrics, function(f) f(R), numeric(1))
 }
@@ -417,7 +417,7 @@ assemble_best <- function(cand, W, Glist, metric_names, top_n) {
 #' candidates.
 #'
 #' @param p sim_n x k p-value matrix from simulate_pvalues() (k = ncol(p))
-#' @param metrics named list of function(R); see GOGT_METRICS
+#' @param metrics named list of function(R); see BENCH_METRICS
 #' @param w_fixed,G_fixed optional fixed-entry constraints; see build_grids()
 #' @param shard optional c(i, N): search only every N-th transition matrix
 #'   starting at i (job arrays); combine shards with merge_results().
@@ -426,7 +426,7 @@ assemble_best <- function(cand, W, Glist, metric_names, top_n) {
 #'   for best.
 grid_search_k <- function(p, alpha, w_step, g_step, top_n, cl = NULL,
                           allow_large_k = FALSE, max_candidates = 1e8,
-                          w_fixed = NULL, metrics = GOGT_METRICS,
+                          w_fixed = NULL, metrics = BENCH_METRICS,
                           shard = NULL, G_fixed = NULL) {
   k <- ncol(p)
   check_metrics(metrics, k)
@@ -617,7 +617,7 @@ report_best <- function(res) {
 #' File stem of a run, e.g. "gridSearch_k3_mp90_80_70".
 #'
 #' @param tag run tag (marginal powers, fixed-weight flag)
-gogt_stem <- function(stem_prefix, k, tag = "") {
+bench_stem <- function(stem_prefix, k, tag = "") {
   sprintf("%s_k%d%s", stem_prefix, k, if (nzchar(tag)) paste0("_", tag) else "")
 }
 

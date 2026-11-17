@@ -65,7 +65,7 @@ ARRAY_ID=$(sbatch --parsable ${PARTITION:+--partition=$PARTITION} <<EOF
 set -euo pipefail
 module load R 2>/dev/null || true
 cd "${ROOT}"
-export GOGT_ROOT="${ROOT}"
+export BENCH_ROOT="${ROOT}"
 
 Rscript scripts/gridSearchGraph.R ${MP} ${ARGS} ${EXTRA} shard=\${SLURM_ARRAY_TASK_ID}/${N_SHARDS}
 EOF
@@ -84,7 +84,7 @@ MERGE_ID=$(sbatch --parsable ${PARTITION:+--partition=$PARTITION} --dependency=a
 set -euo pipefail
 module load R 2>/dev/null || true
 cd "${ROOT}"
-export GOGT_ROOT="${ROOT}"
+export BENCH_ROOT="${ROOT}"
 
 Rscript scripts/gridSearchGraph.R ${MP} ${ARGS} ${EXTRA} merge_shards=${N_SHARDS}
 EOF

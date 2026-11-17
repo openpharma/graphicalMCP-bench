@@ -50,21 +50,21 @@ local({
   }
   source(file.path(root, "R", "rootPath.R"), local = globalenv())
 })
-gogt_source("R", "analytic.R")
-gogt_source("R", "gridCore.R")
-gogt_source("R", "gridRunner.R")
-gogt_source("R", "report.R")
+bench_source("R", "analytic.R")
+bench_source("R", "gridCore.R")
+bench_source("R", "gridRunner.R")
+bench_source("R", "report.R")
 
 
 # =============================================================================
 # PARAMETERS  (edit defaults here; any of them can be overridden from the CLI)
 # =============================================================================
-cfg <- gogt_config(
+cfg <- bench_config(
   alpha     = 0.025,
   run_k     = c(3),
   mp_list   = list(k3 = c(0.90, 0.80, 0.70)),
-  # e.g. c(GOGT_METRICS, list(h1h2 = function(R) mean(R[, "H1"] & R[, "H2"])))
-  metrics   = GOGT_METRICS,
+  # e.g. c(BENCH_METRICS, list(h1h2 = function(R) mean(R[, "H1"] & R[, "H2"])))
+  metrics   = BENCH_METRICS,
   w_step    = 0.05,
   g_step    = 0.1,
   sim_n     = 1e4,
@@ -74,9 +74,9 @@ cfg <- gogt_config(
 )
 # =============================================================================
 
-cfg <- gogt_parse_cli(cfg)
+cfg <- bench_parse_cli(cfg)
 
 # Auto-run only when executed as a script (Rscript), not on interactive source().
 if (!interactive() && sys.nframe() == 0L) {
-  gogt_main(cfg)
+  bench_main(cfg)
 }

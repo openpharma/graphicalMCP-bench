@@ -35,7 +35,7 @@ scenario <- list(
   # function(R) -> one number to maximize; R is the sim_n x k logical rejection
   # matrix with columns H1..Hk. The first metric orders the result tables.
   # Defaults: er (expected rejections), dp (disjunctive), cp (conjunctive power).
-  metrics = c(GOGT_METRICS, list(
+  metrics = c(BENCH_METRICS, list(
     h1h2 = function(R) mean(R[, "H1"] & R[, "H2"])   # P(reject H1 and H2)
   )),
 

@@ -7,10 +7,10 @@
 # path.
 # =============================================================================
 
-#' Absolute path of the gogt repository root.
+#' Absolute path of the graphicalmcp-bench repository root.
 #'
 #' Resolution order:
-#'   1. GOGT_ROOT environment variable (explicit override).
+#'   1. BENCH_ROOT environment variable (explicit override).
 #'   2. The `--file=` argument of the running Rscript.
 #'   3. `ofile` of the calling frame, set by `source()` in interactive sessions.
 #'   4. The working directory.
@@ -18,8 +18,8 @@
 #' scripts may live at any depth (scripts/, optimizer/<method>/, ...).
 #'
 #' @return absolute path to the repository root
-gogt_root <- function() {
-  env <- Sys.getenv("GOGT_ROOT", "")
+bench_root <- function() {
+  env <- Sys.getenv("BENCH_ROOT", "")
   if (nzchar(env)) return(normalizePath(env, winslash = "/", mustWork = TRUE))
 
   find_up <- function(dir) {
@@ -52,15 +52,15 @@ gogt_root <- function() {
 
   root <- find_up(getwd())
   if (!is.null(root)) return(root)
-  stop("Cannot locate the gogt repository root. Set the GOGT_ROOT environment ",
+  stop("Cannot locate the graphicalmcp-bench repository root. Set the BENCH_ROOT environment ",
        "variable or run from inside the repository.")
 }
 
 #' Source a file given relative to the repository root.
 #'
 #' @param ... path components below the repo root, e.g. `"R", "utils.R"`
-gogt_source <- function(...) {
-  path <- file.path(gogt_root(), ...)
+bench_source <- function(...) {
+  path <- file.path(bench_root(), ...)
   if (!file.exists(path)) stop("File not found: ", path)
   source(path, local = globalenv())
   invisible(path)

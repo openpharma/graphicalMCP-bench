@@ -1,7 +1,7 @@
 # Worked example: correlated primaries and a gated secondary endpoint.
 scenario <- list(
   title       = "Example: two doses and a secondary endpoint",
-  author      = "gogt maintainers",
+  author      = "graphicalmcp-bench maintainers",
   date        = "2026-11-16",
   description = paste(
     "H1 and H2 test the high and low dose against a shared control, so their",
@@ -16,7 +16,7 @@ scenario <- list(
                    0.5, 1,   0,
                    0,   0,   1), 3, byrow = TRUE),
 
-  metrics = c(GOGT_METRICS, list(
+  metrics = c(BENCH_METRICS, list(
     h1h3 = function(R) mean(R[, "H1"] & R[, "H3"])   # high dose: primary and secondary
   )),
 

@@ -37,9 +37,9 @@ local({
   }
   source(file.path(dir, "R", "rootPath.R"), local = globalenv())
 })
-gogt_source("optimizer", "optimalMCP", "utils.R")
-gogt_source("optimizer", "optimalMCP", "constraintBonf.R")
-gogt_source("optimizer", "optimalMCP", "expectedRejections.R")
+bench_source("optimizer", "optimalMCP", "utils.R")
+bench_source("optimizer", "optimalMCP", "constraintBonf.R")
+bench_source("optimizer", "optimalMCP", "expectedRejections.R")
 
 if (!requireNamespace("graphicalMCP", quietly = TRUE)) {
   stop("Package 'graphicalMCP' is required for this comparison. ",

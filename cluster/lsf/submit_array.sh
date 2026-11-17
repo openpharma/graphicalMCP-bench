@@ -61,7 +61,7 @@ OUT=$(bsub ${QUEUE:+-q $QUEUE} <<EOF
 set -euo pipefail
 module load R 2>/dev/null || true
 cd "${ROOT}"
-export GOGT_ROOT="${ROOT}"
+export BENCH_ROOT="${ROOT}"
 
 Rscript scripts/gridSearchGraph.R ${MP} ${ARGS} ${EXTRA} shard=\${LSB_JOBINDEX}/${N_SHARDS}
 EOF
@@ -83,7 +83,7 @@ bsub ${QUEUE:+-q $QUEUE} <<EOF
 set -euo pipefail
 module load R 2>/dev/null || true
 cd "${ROOT}"
-export GOGT_ROOT="${ROOT}"
+export BENCH_ROOT="${ROOT}"
 
 Rscript scripts/gridSearchGraph.R ${MP} ${ARGS} ${EXTRA} merge_shards=${N_SHARDS}
 EOF

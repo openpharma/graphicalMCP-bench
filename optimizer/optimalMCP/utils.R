@@ -2,7 +2,7 @@
 # Shared numeric helpers
 # =============================================================================
 # Vendored verbatim from optimalMCP R/utils.R (roxygen @export/@import tags
-# dropped; gogt is a script repo, not a package). Keep in sync if the upstream
+# dropped; graphicalmcp-bench is a script repo, not a package). Keep in sync if the upstream
 # definitions change.
 # =============================================================================
 

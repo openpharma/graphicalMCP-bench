@@ -15,7 +15,7 @@
 # numbers replace MP and key=value arguments override ARGS (last value
 # wins; values must not contain spaces). WALLTIME sets the time limit; account,
 # memory, ... can be overridden with SBATCH_* environment variables. The job is
-# named gogt_<id> (or gogt_k<k>) and logs to logs/<name>.<id>.out.
+# named bench_<id> (or bench_k<k>) and logs to logs/<name>.<id>.out.
 #
 # The R script auto-detects the allocation via parallelly::availableWorkers()
 # (reads SLURM_JOB_NODELIST / SLURM_JOB_CPUS_PER_NODE / SLURM_CPUS_PER_TASK) and
@@ -62,7 +62,7 @@ set -euo pipefail
 module load R 2>/dev/null || true
 
 cd "${ROOT}"
-export GOGT_ROOT="${ROOT}"
+export BENCH_ROOT="${ROOT}"
 
 # Launch remote workers via srun; drop these two lines to use ssh instead.
 chmod u+x cluster/slurm/srun-rsh.sh 2>/dev/null || true

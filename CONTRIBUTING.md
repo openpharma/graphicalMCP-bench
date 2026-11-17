@@ -1,6 +1,6 @@
 # Contributing a scenario
 
-A **scenario** is one worked example: k hypotheses with alpha, marginal powers,
+A **scenario** is one benchmark case: k hypotheses with alpha, marginal powers,
 correlation, metrics and optional constraints. Each scenario is one R file in
 `scenarios/`. Its key results are committed, and the generated page in
 [docs/](docs/README.md) lets everyone see them without re-running anything.

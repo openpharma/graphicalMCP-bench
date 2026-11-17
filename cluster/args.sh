@@ -1,7 +1,7 @@
 # Sourced by the submit scripts to split their arguments: positional numbers
 # replace MP, key=value pairs become EXTRA (appended after ARGS, so they win).
 # With scenario=<id> the scenario file defines the run, so MP and ARGS are
-# dropped. Sets NAME, the job name: gogt_<id> or gogt_k<k>.
+# dropped. Sets NAME, the job name: bench_<id> or bench_k<k>.
 MP_CLI=""
 EXTRA=""
 SCENARIO=""
@@ -20,8 +20,8 @@ if [ -n "$SCENARIO" ]; then
   fi
   MP=""
   ARGS=""
-  NAME="gogt_$(basename "${SCENARIO%.R}")"
+  NAME="bench_$(basename "${SCENARIO%.R}")"
 else
   if [ -n "$MP_CLI" ]; then MP="${MP_CLI# }"; fi
-  NAME="gogt_k$(wc -w <<< "$MP")"
+  NAME="bench_k$(wc -w <<< "$MP")"
 fi

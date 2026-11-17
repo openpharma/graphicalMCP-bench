@@ -1,7 +1,7 @@
 # optimalMCP
 
 Weight optimization from the `optimalMCP` package. **Status: placeholder.** It is not yet
-compared against the grid-search ground truth.
+compared against the grid-search reference solutions.
 
 ## Method
 
@@ -53,9 +53,9 @@ simulation of the `G = 0` graph, for equal weights, the `optim_w_er` weights, an
 
 ```r
 source("R/rootPath.R")
-gogt_source("optimizer", "optimalMCP", "utils.R")
-gogt_source("optimizer", "optimalMCP", "constraintBonf.R")
-gogt_source("optimizer", "optimalMCP", "expectedRejections.R")
+bench_source("optimizer", "optimalMCP", "utils.R")
+bench_source("optimizer", "optimalMCP", "constraintBonf.R")
+bench_source("optimizer", "optimalMCP", "expectedRejections.R")
 
 opt <- optim_w_er(alpha = 0.025, mp = c(0.9, 0.8, 0.7), constraint.w = c(NA, NA, 0))
 opt$w

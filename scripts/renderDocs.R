@@ -21,10 +21,10 @@ local({
   }
   source(file.path(root, "R", "rootPath.R"), local = globalenv())
 })
-gogt_source("R", "gridCore.R")
-gogt_source("R", "report.R")
+bench_source("R", "gridCore.R")
+bench_source("R", "report.R")
 
 if (!interactive() && sys.nframe() == 0L) {
   ids <- commandArgs(trailingOnly = TRUE)
-  gogt_render_docs(if (length(ids)) ids else NULL)
+  bench_render_docs(if (length(ids)) ids else NULL)
 }
