@@ -1,7 +1,7 @@
 # Worked example: correlated primaries and a gated secondary endpoint.
 scenario <- list(
   title       = "Example: two doses and a secondary endpoint",
-  author      = "graphicalmcp-bench maintainers",
+  author      = "AI test",
   date        = "2026-11-16",
   description = paste(
     "H1 and H2 test the high and low dose against a shared control, so their",

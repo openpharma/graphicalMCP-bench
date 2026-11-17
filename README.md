@@ -270,12 +270,11 @@ Each array task runs `gridSearchGraph.R ... shard=i/N`: it searches every `N`-th
 transition matrix starting at `i` on its own node's cores and writes
 `<out_dir>/shards/<stem>_shard<i>of<N>.rds`. For a scenario the shards go to
 `results/shards/<id>_shard<i>of<N>.rds` instead, so `reference/` only holds committed
-files. A dependent job then runs
-`... merge_shards=N`, which combines the shards into `<out_dir>/<stem>.rds` /
-`_top.csv` / `_best.csv`, re-evaluates the kept graphs and, for a scenario, renders its
-page. All shards use the same seed and hence the same p-values, so the merged
-result is identical to a single run. Re-runs must use the same `N_SHARDS` and arguments
-as the original submission.
+files. A dependent job then runs `... merge_shards=N`, which combines the shards into
+`<out_dir>/<stem>.rds` / `_top.csv` / `_best.csv`, re-evaluates the kept graphs and, for
+a scenario, renders its page. All shards use the same seed and hence the same p-values,
+so the merged result is identical to a single run. Re-runs must use the same `N_SHARDS`
+and arguments as the original submission.
 
 ## Feasibility
 
