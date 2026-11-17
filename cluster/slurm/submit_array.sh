@@ -24,8 +24,8 @@
 # wins; values must not contain spaces). WALLTIME / MERGE_WALLTIME set the time
 # limits; account, memory, ... can be overridden with SBATCH_* environment
 # variables.
-# Shards go to <out_dir>/shards/, the merged result to <out_dir>/ under the same
-# name as a single run.
+# Shards go to <out_dir>/shards/ (results/shards/ for a scenario), the merged
+# result to <out_dir>/ under the same name as a single run.
 # =============================================================================
 
 set -euo pipefail

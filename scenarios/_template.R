@@ -2,7 +2,7 @@
 # Scenario template: copy to scenarios/<id>.R and edit
 # =============================================================================
 # <id> is the file name: lowercase letters, digits and "_" (e.g. onco_dose_k3).
-# Results go to results/<id>/ and docs/scenarios/<id>.md.
+# Results go to reference/<id>/ and docs/scenarios/<id>.md.
 #
 # Smoke test (checks + time / memory estimate of the full run, nothing written):
 #     Rscript scripts/gridSearchGraph.R scenario=<id> smoke=TRUE

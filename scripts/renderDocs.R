@@ -3,7 +3,7 @@
 # Rebuild the scenario docs from saved results
 # =============================================================================
 # Writes docs/scenarios/<id>.md for the given scenario ids (default: every
-# results/<id>/<id>.rds) and always rebuilds the index docs/README.md.
+# reference/<id>/<id>.rds) and always rebuilds the index docs/README.md.
 # Scenario runs do this automatically; use it after changing R/report.R or to
 # resolve a merge conflict in docs/README.md.
 #

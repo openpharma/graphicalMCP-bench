@@ -30,9 +30,9 @@ field, and `scenarios/example_k3.R` for a worked example.
 Rscript scripts/gridSearchGraph.R scenario=example_k3
 ```
 
-This writes `results/<id>/<id>.rds`, `_best.csv` and `_top.csv`, renders
-`docs/scenarios/<id>.md` and rebuilds the index `docs/README.md`. Other `key=value`
-arguments override the file (e.g. a coarser grid); the page then shows
+This writes the reference solution to `reference/<id>/<id>.rds`, `_best.csv` and
+`_top.csv`, renders `docs/scenarios/<id>.md` and rebuilds the index `docs/README.md`.
+Other `key=value` arguments override the file (e.g. a coarser grid); the page then shows
 the overrides. `Rscript scripts/renderDocs.R [id ...]` rebuilds the pages from the saved
 results.
 
@@ -130,7 +130,7 @@ scenarios/
   <id>.R               one shared example per file
 scripts/
   gridSearchGraph.R    entry point (all metrics in one run)
-  renderDocs.R         rebuild docs/ from results/<id>/<id>.rds
+  renderDocs.R         rebuild docs/ from reference/<id>/<id>.rds
 optimizer/
   optimalMCP/          optim_w_er (vendored from optimalMCP) + its check script
 cluster/
@@ -140,7 +140,8 @@ cluster/
   slurm/submit.sh      Slurm (sbatch): one multi-node job
   slurm/submit_array.sh  Slurm job array: independent shards + merge job
   slurm/srun-rsh.sh    starts remote PSOCK workers via srun instead of ssh
-results/<id>/          committed scenario results (ad-hoc runs in results/ stay local)
+reference/<id>/        committed scenario reference solutions
+results/               ad-hoc runs (local, not committed)
 docs/                  generated: README.md (index) + scenarios/<id>.md
 ```
 
@@ -267,7 +268,9 @@ limit per task and `MERGE_WALLTIME` that of the merge job (both default 8 h).
 
 Each array task runs `gridSearchGraph.R ... shard=i/N`: it searches every `N`-th
 transition matrix starting at `i` on its own node's cores and writes
-`<out_dir>/shards/<stem>_shard<i>of<N>.rds`. A dependent job then runs
+`<out_dir>/shards/<stem>_shard<i>of<N>.rds`. For a scenario the shards go to
+`results/shards/<id>_shard<i>of<N>.rds` instead, so `reference/` only holds committed
+files. A dependent job then runs
 `... merge_shards=N`, which combines the shards into `<out_dir>/<stem>.rds` /
 `_top.csv` / `_best.csv`, re-evaluates the kept graphs and, for a scenario, renders its
 page. All shards use the same seed and hence the same p-values, so the merged
@@ -291,7 +294,7 @@ factors.
 
 ## Output
 
-A scenario run writes to `results/<id>/` with stem `<id>`. An ad-hoc run writes to
+A scenario run writes to `reference/<id>/` with stem `<id>`. An ad-hoc run writes to
 `out_dir` (default `results/`, not committed) with stem
 `gridSearch_k<k>_mp<..>[_rho<xx>|_corr][_fixedw][_fixedg]`:
 

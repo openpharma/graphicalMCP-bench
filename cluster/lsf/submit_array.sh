@@ -22,8 +22,8 @@
 # ignored. Otherwise positional numbers replace MP. key=value arguments
 # override ARGS / the scenario for both the shards and the merge (last value
 # wins; values must not contain spaces).
-# Shards go to <out_dir>/shards/, the merged result to <out_dir>/ under the same
-# name as a single run.
+# Shards go to <out_dir>/shards/ (results/shards/ for a scenario), the merged
+# result to <out_dir>/ under the same name as a single run.
 # =============================================================================
 
 set -euo pipefail

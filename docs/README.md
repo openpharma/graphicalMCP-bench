@@ -8,4 +8,4 @@ The last column is the optimum of each scenario's first metric (re-evaluated, ±
 
 | Scenario | Author | k | alpha | Marginal power | Correlation | Constraints | Optimum |
 |---|---|---|---|---|---|---|---|
-| [Example: two doses and a secondary endpoint](scenarios/example_k3.md) | graphicalmcp-bench maintainers | 3 | 0.025 | 0.9, 0.8, 0.7 | rho from 0 to 0.5 | weights, transitions | `er` = 2.2336 ± 0.0040 |
+| [Example: two doses and a secondary endpoint](scenarios/example_k3.md) | gogt maintainers | 3 | 0.025 | 0.9, 0.8, 0.7 | rho from 0 to 0.5 | weights, transitions | `er` = 2.2336 ± 0.0040 |

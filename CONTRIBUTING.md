@@ -31,14 +31,14 @@ correlation, metrics and optional constraints. Each scenario is one R file in
    bash cluster/slurm/submit.sh scenario=<id>        # or submit_array.sh, or cluster/lsf/
    ```
 
-   This writes `results/<id>/` (`<id>.rds`, `<id>_best.csv`, `<id>_top.csv`)
+   This writes `reference/<id>/` (`<id>.rds`, `<id>_best.csv`, `<id>_top.csv`)
    and `docs/scenarios/<id>.md`, and updates `docs/README.md`.
 5. **Review** `docs/scenarios/<id>.md`. It must not show the
    "command-line overrides" note.
 6. **Commit** and open a merge request:
 
    ```sh
-   git add scenarios/<id>.R results/<id>/ docs/scenarios/<id>.md docs/README.md
+   git add scenarios/<id>.R reference/<id>/ docs/scenarios/<id>.md docs/README.md
    ```
 
 ## Rules

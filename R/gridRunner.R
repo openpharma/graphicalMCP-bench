@@ -65,7 +65,8 @@ bench_config <- function(...) {
     stem_prefix    = "gridSearch",
 
     ## -- Job arrays -----------------------------------------------------------
-    # c(i, N): search only shard i of N and write it to <out_dir>/shards/.
+    # c(i, N): search only shard i of N and write it to <out_dir>/shards/
+    # (results/shards/ for scenarios).
     shard          = NULL,
     # N: merge shards 1..N of the same run into the final result (no search).
     merge_shards   = NULL,
@@ -204,7 +205,7 @@ bench_scenario_path <- function(x) {
 #' Load a scenario file into a config.
 #'
 #' The file must define `scenario`, a named list (see scenarios/_template.R).
-#' Its id is the file name; results go to results/<id>/.
+#' Its id is the file name; results go to reference/<id>/.
 #'
 #' @param cfg config list from bench_config()
 #' @param x scenario id or path
@@ -246,7 +247,7 @@ bench_load_scenario <- function(cfg, x) {
     date        = if (is.null(sc$date)) "" else as.character(sc$date),
     description = if (is.null(sc$description)) "" else sc$description
   )
-  cfg$out_dir <- file.path("results", id)
+  cfg$out_dir <- file.path("reference", id)
   cat(sprintf("[scenario] %s: %s (k = %d)\n", id, sc$title, k))
   cfg
 }
@@ -565,8 +566,8 @@ merge_shards <- function(shard_dir, stem, n) {
 #' Run the grid search for every k in the config.
 #'
 #' With cfg$shard set, only that shard is searched and written to
-#' <out_dir>/shards/; with cfg$merge_shards set, existing shards are merged
-#' instead of searching.
+#' <out_dir>/shards/ (results/shards/ for scenarios); with cfg$merge_shards set,
+#' existing shards are merged instead of searching.
 #'
 #' @param cfg config list from bench_config() / bench_parse_cli()
 #' @return invisibly, a named list of results per k
@@ -588,7 +589,9 @@ bench_main <- function(cfg) {
   if (!isTRUE(grepl("^(/|\\\\|[A-Za-z]:)", out_dir))) {
     out_dir <- file.path(bench_root(), out_dir)
   }
-  shard_dir <- file.path(out_dir, "shards")
+  # Scenario shards are local scratch, so they stay out of reference/.
+  shard_root <- if (is.null(cfg$scenario)) out_dir else file.path(bench_root(), "results")
+  shard_dir  <- file.path(shard_root, "shards")
 
   cl <- if (merging) NULL else make_cluster(cfg$max_workers)
   if (!is.null(cl)) on.exit(parallel::stopCluster(cl), add = TRUE)
@@ -672,7 +675,7 @@ bench_main <- function(cfg) {
       cat(sprintf("[k=%d] results written to %s.rds / _top.csv / _best.csv\n",
                   k, file.path(out_dir, stem)))
       if (!is.null(cfg$scenario) &&
-          identical(cfg$out_dir, file.path("results", cfg$scenario$id))) {
+          identical(cfg$out_dir, file.path("reference", cfg$scenario$id))) {
         bench_render_docs(cfg$scenario$id)
       }
     }
