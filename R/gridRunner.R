@@ -74,6 +74,8 @@ bench_config <- function(...) {
     allow_large_k  = FALSE,       # set TRUE only after coarsening the grid for k>3
     max_candidates = 1e8,         # hard stop above this many candidates
 
+    # TRUE: checks plus a time / memory estimate of the full run; nothing written.
+    smoke          = FALSE,
     ## -- Set by scenario=<id> (see scenarios/_template.R) ---------------------
     scenario       = NULL,        # list(id, file, title, author, date, description)
     overrides      = NULL         # key=value arguments applied on top of it
@@ -162,6 +164,7 @@ bench_parse_cli <- function(cfg, args = commandArgs(trailingOnly = TRUE)) {
     else if (key == "metrics")        cfg$metric_select  <- split_csv(val)
     else if (key == "metrics_file")   cfg$metrics_file   <- val
     else if (key == "merge_shards")   cfg$merge_shards   <- conv(key, val, as.integer)
+    else if (key == "smoke")          cfg$smoke          <- conv(key, val, as.logical)
     else if (key == "shard") {
       cfg$shard <- conv(key, strsplit(val, "/", fixed = TRUE)[[1]], as.integer)
       if (length(cfg$shard) != 2L || cfg$shard[1] < 1L ||
@@ -173,7 +176,7 @@ bench_parse_cli <- function(cfg, args = commandArgs(trailingOnly = TRUE)) {
               "sim_n, w_step, g_step, w_fixed, seed, top_n, validate_n, ",
               "validate_seed, out_dir, stem_prefix, allow_large_k, ",
               "max_candidates, save_results, max_workers, metrics, metrics_file, ",
-              "shard, merge_shards.")
+              "shard, merge_shards, smoke.")
   }
   cfg
 }
@@ -398,15 +401,144 @@ verify_zero_transition <- function(p, alpha, mp, metrics, indep = TRUE) {
 }
 
 
-#' Fast pipeline smoke test on a coarse grid (seconds, not the full run).
-smoke_test <- function(alpha = 0.025, mp = c(0.8, 0.7, 0.9),
-                       metrics = BENCH_METRICS) {
-  p <- simulate_pvalues(length(mp), alpha, mp, sim_n = 2e3, seed = 1)
-  res <- grid_search_k(p, alpha, w_step = 0.25, g_step = 0.5, top_n = 5,
-                       allow_large_k = TRUE, max_candidates = Inf,
-                       metrics = metrics)
-  report_best(res)
-  invisible(res)
+#' Smoke test: the checks plus a time and memory estimate of the full run.
+#'
+#' Times a random sample of the real grid at the run's sim_n, k, metrics and
+#' constraints; the full grid is counted, never built. Search CPU time is
+#' n_G * (c_G + n_W * c_w), with c_G the fixed cost per transition matrix and
+#' c_w the cost per candidate. Nothing is written.
+#'
+#' @param cfg config list from bench_config() / bench_parse_cli()
+#' @param n_g,n_w transition matrices / weight vectors in the sample
+#' @param n_val graphs timed at validate_n simulations
+#' @param cores,shards,shard_cores defaults of cluster/*/submit.sh (cores) and
+#'   cluster/*/submit_array.sh (shards x shard_cores); keep in sync
+#' @return invisibly, a list of estimates per k (seconds, MB)
+smoke_test <- function(cfg, n_g = 10L, n_w = 200L, n_val = 5L,
+                       cores = 16L, shards = 16L, shard_cores = 4L) {
+  metrics <- bench_resolve_metrics(cfg)
+  m       <- length(metrics)
+  since   <- function(t0) as.numeric(difftime(Sys.time(), t0, units = "secs"))
+  heap    <- function(col) sum(gc()[, col])   # col 2 = used, 6 = max used (Mb)
+  rss     <- function() {                      # resident MB; NA off Linux
+    f <- "/proc/self/status"
+    if (!file.exists(f)) return(NA_real_)
+    as.numeric(gsub("[^0-9]", "", grep("^VmRSS:", readLines(f), value = TRUE))) / 1024
+  }
+  big     <- function(x) format(x, big.mark = ",", scientific = x >= 1e15)
+  fmt_s   <- function(s) {
+    if (s < 10) sprintf("%.1f s", s)
+    else if (s < 120) sprintf("%.0f s", s)
+    else if (s < 7200) sprintf("%.1f min", s / 60)
+    else paste(big(signif(s / 3600, 3)), "h")
+  }
+  fmt_mb  <- function(x) {
+    if (x < 1024) sprintf("%.0f MB", x) else paste(big(signif(x / 1024, 3)), "GB")
+  }
+
+  out <- list()
+  for (k in cfg$run_k) {
+    key <- paste0("k", k)
+    mp  <- cfg$mp_list[[key]]
+    if (is.null(mp)) stop("No marginal powers defined in mp_list for ", key, ".")
+    check_metrics(metrics, k)
+    corr <- bench_corr(cfg$corr, k)
+
+    t0 <- Sys.time()
+    verify_engine(k, cfg$alpha, mp)
+    p <- simulate_pvalues(k, cfg$alpha, mp, cfg$sim_n, cfg$seed, corr)
+    verify_zero_transition(p, cfg$alpha, mp, metrics, indep = all(corr == diag(k)))
+    startup_s <- since(t0)
+
+    size <- grid_size(k, cfg$w_step, cfg$g_step, cfg$w_fixed, cfg$G_fixed)
+    n_W  <- size[["n_W"]]
+    n_G  <- size[["n_G"]]
+    smp  <- grid_sample(k, cfg$w_step, cfg$g_step, min(n_w, n_W), min(n_g, n_G),
+                        cfg$w_fixed, cfg$G_fixed)
+    Gs   <- lapply(smp$g_ids, transition_matrix, G_rows = smp$G_rows)
+    s_w  <- nrow(smp$W)
+    s_g  <- length(Gs)
+
+    t0 <- Sys.time()
+    for (G in Gs) intersection_basis(G)
+    c_G <- since(t0) / s_g
+    overhead <- rss() - heap(2)
+    gc(reset = TRUE)
+    t0 <- Sys.time()
+    search_chunk(smp$g_ids, smp$G_rows, smp$W, p, cfg$alpha, metrics, cfg$top_n)
+    c_w    <- max(since(t0) - c_G * s_g, 0) / (s_g * s_w)
+    heap_s <- heap(6)
+    core_s <- n_G * (c_G + n_W * c_w)
+
+    n_keep <- min(cfg$top_n * m, n_W * n_G)
+    val_s  <- 0
+    heap_v <- 0
+    if (isTRUE(cfg$validate_n > 0)) {
+      gc(reset = TRUE)
+      t0 <- Sys.time()
+      p_val <- simulate_pvalues(k, cfg$alpha, mp, cfg$validate_n, cfg$seed + 1L, corr)
+      sim_s <- since(t0)
+      idx   <- rep_len(seq_len(min(s_w, s_g)), min(n_val, n_keep))
+      kept  <- list(k = k, metrics = names(metrics),
+                    best = data.frame(smp$W[idx, , drop = FALSE]))
+      kept$best[names(metrics)] <- NA_real_
+      kept$best$G <- Gs[idx]
+      t0 <- Sys.time()
+      validate_best(kept, p_val, cfg$alpha, metrics)
+      val_s  <- sim_s + n_keep * since(t0) / length(idx)
+      heap_v <- heap(6)
+      rm(p_val)
+    }
+
+    # Grid-sized arrays (W, W %*% basis, scores, g_ids) with rough copy factors.
+    add      <- if (is.na(overhead)) 0 else overhead
+    worker   <- function(n_workers, g_job) add + heap_s +
+      8 * (n_W * (k + (2^k - 1) * k + m + 3 * (2 + m)) + g_job / n_workers) / 2^20
+    main     <- function(g_job) add + max(heap_s, heap_v) +
+      8 * (4 * n_W * k + 3 * g_job) / 2^20
+    g_shard  <- n_G / shards
+    est <- list(
+      n_W = n_W, n_G = n_G, c_G = c_G, c_w = c_w, core_s = core_s,
+      validate_s = val_s, startup_s = startup_s,
+      worker_mb = worker(cores, n_G), main_mb = main(n_G),
+      single_s  = startup_s + core_s / cores + val_s,
+      single_mb = main(n_G) + cores * worker(cores, n_G),
+      shard_s   = startup_s + core_s / (shards * shard_cores),
+      shard_mb  = main(g_shard) + shard_cores * worker(shard_cores, g_shard),
+      merge_s   = val_s, merge_mb = main(0)
+    )
+
+    cat(sprintf("\n==== smoke test k = %d: estimate for the full grid ====\n", k))
+    cat(sprintf("grid        %s weight vectors x %s transition matrices = %s candidates\n",
+                big(n_W), big(n_G), big(n_W * n_G)))
+    if (n_W * n_G > cfg$max_candidates && !isTRUE(cfg$allow_large_k)) {
+      cat(sprintf("            above max_candidates (%s): the full run needs allow_large_k=TRUE\n",
+                  big(cfg$max_candidates)))
+    }
+    cat(sprintf("sample      %d transition matrices x %d weight vectors, sim_n = %s\n",
+                s_g, s_w, big(cfg$sim_n)))
+    cat(sprintf("cost        %.1f ms per transition matrix + %.2f ms per candidate\n",
+                1e3 * c_G, 1e3 * c_w))
+    cat(sprintf("search      %s CPU time (%s core-hours)\n",
+                fmt_s(core_s), big(signif(core_s / 3600, 3))))
+    if (val_s > 0) {
+      cat(sprintf("validation  up to %s graphs x %s simulations: %s (serial)\n",
+                  big(n_keep), big(cfg$validate_n), fmt_s(val_s)))
+    }
+    cat(sprintf("startup     %s per job (checks + p-values; worker start-up not included)\n",
+                fmt_s(startup_s)))
+    cat(sprintf("memory      %s per worker, %s main process%s\n",
+                fmt_mb(est$worker_mb), fmt_mb(est$main_mb),
+                if (is.na(overhead)) " (R heap only; process overhead measured on Linux)" else ""))
+    cat(sprintf("single job  %d cores: wall time %s, memory %s\n",
+                cores, fmt_s(est$single_s), fmt_mb(est$single_mb)))
+    cat(sprintf("job array   %d shards x %d cores: wall time %s, memory %s per shard\n",
+                shards, shard_cores, fmt_s(est$shard_s), fmt_mb(est$shard_mb)))
+    cat(sprintf("            merge job: wall time %s, memory %s\n",
+                fmt_s(est$merge_s), fmt_mb(est$merge_mb)))
+    out[[key]] <- est
+  }
+  invisible(out)
 }
 
 
@@ -440,6 +572,12 @@ merge_shards <- function(shard_dir, stem, n) {
 #' @return invisibly, a named list of results per k
 bench_main <- function(cfg) {
   bench_check_deps()
+  if (isTRUE(cfg$smoke)) {
+    if (!is.null(cfg$shard) || !is.null(cfg$merge_shards)) {
+      stop("smoke=TRUE cannot be combined with shard= or merge_shards=.")
+    }
+    return(smoke_test(cfg))
+  }
   metrics <- bench_resolve_metrics(cfg)
   merging <- !is.null(cfg$merge_shards)
   if (merging && !is.null(cfg$shard)) {

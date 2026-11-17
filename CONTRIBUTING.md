@@ -16,11 +16,14 @@ correlation, metrics and optional constraints. Each scenario is one R file in
 3. **Smoke test** (seconds, nothing written):
 
    ```sh
-   Rscript scripts/gridSearchGraph.R scenario=<id> w_step=0.25 g_step=0.5 sim_n=2000 validate_n=0 save_results=FALSE
+   Rscript scripts/gridSearchGraph.R scenario=<id> smoke=TRUE
    ```
 
-   It prints the number of candidates of the full grid. Check that the size is
-   feasible before the full run (see *Feasibility* in the [README](README.md)).
+   It runs the checks on a random sample of the scenario's grid and prints the
+   size of the full grid with its estimated CPU time, memory and wall time for
+   the default cluster settings. Check that the run is feasible (see
+   *Feasibility* in the [README](README.md)) and use the numbers to set
+   `WALLTIME`, `CORES` and `N_SHARDS` for the cluster scripts.
 4. **Full run** with no extra `key=value` overrides, locally or on a cluster:
 
    ```sh

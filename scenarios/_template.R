@@ -4,8 +4,8 @@
 # <id> is the file name: lowercase letters, digits and "_" (e.g. onco_dose_k3).
 # Results go to results/<id>/ and docs/scenarios/<id>.md.
 #
-# Smoke test (coarse grid, nothing written):
-#     Rscript scripts/gridSearchGraph.R scenario=<id> w_step=0.25 g_step=0.5 sim_n=2000 validate_n=0 save_results=FALSE
+# Smoke test (checks + time / memory estimate of the full run, nothing written):
+#     Rscript scripts/gridSearchGraph.R scenario=<id> smoke=TRUE
 # Full run, locally or on a cluster:
 #     Rscript scripts/gridSearchGraph.R scenario=<id>
 #     bash cluster/slurm/submit.sh scenario=<id>

@@ -27,9 +27,11 @@
 #   Optional key=value overrides: alpha, corr, sim_n, w_step, g_step, w_fixed,
 #   seed, top_n, validate_n, validate_seed, out_dir, stem_prefix,
 #   allow_large_k, max_candidates, save_results, max_workers, metrics (comma
-#   list), metrics_file, shard, merge_shards.
+#   list), metrics_file, shard, merge_shards, smoke.
 #   Fixed weights: w_fixed=0.5,0.3,0.2 (only G searched) or w_fixed=0.5,NA,NA.
 #   Job arrays: shard=i/N searches one shard; merge_shards=N combines them.
+#   smoke=TRUE runs the checks and estimates the time / memory of the full run
+#   from a sample of its grid (nothing written).
 #   Works from any working directory.
 #
 # CLUSTER / MULTI-NODE

@@ -32,7 +32,7 @@ Rscript scripts/gridSearchGraph.R scenario=example_k3
 
 This writes `results/<id>/<id>.rds`, `_best.csv` and `_top.csv`, renders
 `docs/scenarios/<id>.md` and rebuilds the index `docs/README.md`. Other `key=value`
-arguments override the file (e.g. a coarse grid for a smoke test); the page then shows
+arguments override the file (e.g. a coarser grid); the page then shows
 the overrides. `Rscript scripts/renderDocs.R [id ...]` rebuilds the pages from the saved
 results.
 
@@ -157,9 +157,8 @@ On a cluster, those packages must be visible from **every** compute node.
 Scripts resolve `R/` relative to their own location, so any working directory works.
 
 ```sh
-# Smoke-sized run: 3 hypotheses, coarse grid, nothing written to disk
-Rscript scripts/gridSearchGraph.R 0.9 0.8 0.7 \
-  w_step=0.25 g_step=0.5 sim_n=2000 top_n=5 save_results=FALSE
+# Smoke test: checks plus a time / memory estimate of the full run, nothing written
+Rscript scripts/gridSearchGraph.R 0.90 0.80 0.70 smoke=TRUE
 
 # Default k=3 run (er, dp, cp), results written to results/
 Rscript scripts/gridSearchGraph.R 0.90 0.80 0.70
@@ -172,8 +171,14 @@ Positional numeric arguments are the marginal powers; their count defines `k`.
 `key=value` arguments override config fields: `scenario`, `alpha`, `corr`, `sim_n`,
 `w_step`, `g_step`, `w_fixed`, `seed`, `top_n`, `validate_n`, `validate_seed`, `out_dir`,
 `stem_prefix`, `allow_large_k`, `max_candidates`, `save_results`, `max_workers`,
-`metrics` (comma list), `metrics_file`, `shard`, `merge_shards`. Unknown keys and
+`metrics` (comma list), `metrics_file`, `shard`, `merge_shards`, `smoke`. Unknown keys and
 unparsable values are errors. With `scenario=`, positional arguments are not allowed.
+
+`smoke=TRUE` runs the checks on a random sample of the real grid (10 transition
+matrices × 200 weight vectors at the run's `sim_n`, metrics and constraints) and prints
+the grid size, the search CPU time, the validation time, the memory per worker and of
+the main process, and the wall time and memory of the default cluster jobs. The full
+grid is counted, never built, so this is safe for any grid size.
 
 Pass `w_fixed=0.5,0.3,0.2` to skip the weight simplex and search only `G`, or
 `w_fixed=0.5,NA,NA` to fix only some weights. Ad-hoc runs are tagged `_fixedw` /
@@ -203,7 +208,8 @@ This gives results identical to calling `graph_calculate_power()` per candidate,
 
 ### Cluster
 
-One job runs all metrics. Pick the script for your scheduler:
+One job runs all metrics. Size it with the smoke test (`smoke=TRUE`) first. Pick the
+script for your scheduler:
 
 ```sh
 bash cluster/slurm/submit.sh scenario=my_id            # a scenario file defines the run

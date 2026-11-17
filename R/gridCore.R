@@ -148,17 +148,14 @@ compositions <- function(parts, m) {
     cbind(v, compositions(parts - 1L, m - v), deparse.level = 0)))
 }
 
-#' Simplex grid points with some coordinates fixed.
-#'
-#' Free (NA) entries take every value in {0, step, 2*step, ...} such that the
-#' vector sums to 1, i.e. they share the remaining mass 1 - sum(fixed). With no
-#' free entry the fixed values are returned as they are (sum <= 1 allowed).
+#' Validated description of a simplex grid with some coordinates fixed.
 #'
 #' @param fixed numeric vector; NA = free, a number = fixed to that value
 #' @param step grid step; 1/step must be (close to) an integer
 #' @param label name used in error messages
-#' @return matrix with length(fixed) columns, one grid point per row
-constrained_simplex <- function(fixed, step, label = "fixed") {
+#' @return list(fixed, free = logical, m = 1/step, n_rest = steps shared by
+#'   the free entries)
+simplex_spec <- function(fixed, step, label = "fixed") {
   m <- round(1 / step)
   if (abs(m * step - 1) > 1e-9) {
     stop("1/step must be an integer for a simplex grid (got step = ", step, ").")
@@ -170,15 +167,57 @@ constrained_simplex <- function(fixed, step, label = "fixed") {
     stop(label, ": fixed entries must lie in [0, 1] and sum to at most 1; got ",
          paste(fixed, collapse = ", "), ".")
   }
-  if (!any(free)) return(matrix(fixed, nrow = 1))
   n_rest <- round(rest * m)
-  if (abs(n_rest / m - rest) > 1e-9) {
+  if (any(free) && abs(n_rest / m - rest) > 1e-9) {
     stop(sprintf("%s: the free entries share 1 - %g = %g, which is not a multiple of step %g.",
                  label, sum(val), rest, step))
   }
-  comps <- compositions(sum(free), n_rest)
+  list(fixed = fixed, free = free, m = m, n_rest = n_rest)
+}
+
+#' Simplex grid points with some coordinates fixed.
+#'
+#' Free (NA) entries take every value in {0, step, 2*step, ...} such that the
+#' vector sums to 1, i.e. they share the remaining mass 1 - sum(fixed). With no
+#' free entry the fixed values are returned as they are (sum <= 1 allowed).
+#'
+#' @inheritParams simplex_spec
+#' @return matrix with length(fixed) columns, one grid point per row
+constrained_simplex <- function(fixed, step, label = "fixed") {
+  s <- simplex_spec(fixed, step, label)
+  if (!any(s$free)) return(matrix(fixed, nrow = 1))
+  comps <- compositions(sum(s$free), s$n_rest)
   out <- matrix(fixed, nrow(comps), length(fixed), byrow = TRUE)
-  out[, free] <- comps / m
+  out[, s$free] <- comps / s$m
+  out
+}
+
+#' Number of rows of constrained_simplex(), without building them.
+#'
+#' @inheritParams simplex_spec
+simplex_count <- function(fixed, step, label = "fixed") {
+  s <- simplex_spec(fixed, step, label)
+  f <- sum(s$free)
+  if (f == 0L) 1 else choose(s$n_rest + f - 1, f - 1)
+}
+
+#' Uniformly random rows of constrained_simplex(), without building it.
+#'
+#' Stars and bars: f - 1 bars at random positions among n_rest + f - 1 slots
+#' split the n_rest steps over the f free entries.
+#'
+#' @inheritParams simplex_spec
+#' @param n number of points
+#' @return n x length(fixed) matrix
+simplex_sample <- function(fixed, step, n, label = "fixed") {
+  s   <- simplex_spec(fixed, step, label)
+  f   <- sum(s$free)
+  out <- matrix(fixed, n, length(fixed), byrow = TRUE)
+  if (f == 0L) return(out)
+  for (r in seq_len(n)) {
+    bars <- sort(sample.int(s$n_rest + f - 1, f - 1))
+    out[r, s$free] <- (diff(c(0, bars, s$n_rest + f)) - 1) / s$m
+  }
   out
 }
 
@@ -194,30 +233,43 @@ simplex_grid <- function(k, step) {
   constrained_simplex(rep(NA_real_, k), step)
 }
 
-#' All transition matrices on the g_step grid, optionally with fixed entries.
+#' Per-row grids of the transition matrices on the g_step grid.
 #'
 #' Each row i distributes its propagated alpha over the other k-1 hypotheses
 #' (diagonal 0). Free entries of a row share what the fixed entries leave, so
-#' rows with a free entry sum to 1. The full set is the Cartesian product of
-#' the per-row grids across the k rows.
+#' rows with a free entry sum to 1. The transition grid is the Cartesian product
+#' of these per-row grids; it is never materialized, see transition_matrix().
 #'
 #' @param k number of hypotheses
 #' @param step transition grid step
 #' @param G_fixed optional k x k matrix; NA = free, a number = fixed
-#' @return list of k x k matrices
-transition_grid <- function(k, step, G_fixed = NULL) {
-  if (k < 2L) return(list(matrix(0, k, k)))
+#' @return list of k matrices; element i has one row per distribution of row i
+transition_rows <- function(k, step, G_fixed = NULL) {
   if (is.null(G_fixed)) G_fixed <- matrix(NA_real_, k, k)
-  row_dists <- lapply(seq_len(k), function(i)
+  lapply(seq_len(k), function(i)
     constrained_simplex(G_fixed[i, -i], step, sprintf("G_fixed row %d", i)))
-  # Index every combination of a per-row distribution for each of the k rows.
-  idx <- as.matrix(expand.grid(lapply(row_dists, function(d) seq_len(nrow(d))),
-                               KEEP.OUT.ATTRS = FALSE))
-  lapply(seq_len(nrow(idx)), function(t) {
-    G <- matrix(0, k, k)
-    for (i in seq_len(k)) G[i, -i] <- row_dists[[i]][idx[t, i], ]
-    G
-  })
+}
+
+#' Number of transition matrices on the grid.
+n_transitions <- function(G_rows) prod(as.numeric(vapply(G_rows, nrow, integer(1))))
+
+#' Transition matrix number g_id of the grid, built on demand.
+#'
+#' Row 1 varies fastest (expand.grid order), so g_id matches earlier results.
+#'
+#' @param G_rows per-row grids from transition_rows()
+#' @param g_id index in 1..n_transitions(G_rows)
+#' @return k x k matrix
+transition_matrix <- function(G_rows, g_id) {
+  k <- length(G_rows)
+  G <- matrix(0, k, k)
+  r <- g_id - 1
+  for (i in seq_len(k)) {
+    n <- nrow(G_rows[[i]])
+    G[i, -i] <- G_rows[[i]][r %% n + 1, ]
+    r <- r %/% n
+  }
+  G
 }
 
 
@@ -343,19 +395,20 @@ top_union <- function(m, metric_names, top_n) {
 #' Runs on the workers and keeps only the running top_n union, so memory stays
 #' bounded however many candidates the batch holds.
 #'
-#' @param task list(g_id = integer ids, G = list of matrices)
+#' @param g_ids transition-matrix ids of the batch
+#' @param G_rows per-row grids from transition_rows()
 #' @return numeric matrix with columns g_id, w_id and one per metric
-search_chunk <- function(task, W, p, alpha, metrics, top_n) {
+search_chunk <- function(g_ids, G_rows, W, p, alpha, metrics, top_n) {
   nm   <- names(metrics)
   best <- NULL
-  for (t in seq_along(task$g_id)) {
-    b  <- intersection_basis(task$G[[t]])
+  for (g in g_ids) {
+    b  <- intersection_basis(transition_matrix(G_rows, g))
     IW <- W %*% b$basis
     vals <- vapply(seq_len(nrow(W)), function(a) {
       R <- reject_matrix(p, b$ind, matrix(IW[a, ], nrow = nrow(b$ind)), alpha)
       vapply(metrics, function(f) f(R), numeric(1))
     }, numeric(length(nm)))
-    rows <- cbind(g_id = task$g_id[t], w_id = seq_len(nrow(W)),
+    rows <- cbind(g_id = g, w_id = seq_len(nrow(W)),
                   matrix(vals, ncol = length(nm), byrow = TRUE,
                          dimnames = list(NULL, nm)))
     best <- top_union(rbind(best, rows), nm, top_n)
@@ -363,20 +416,22 @@ search_chunk <- function(task, W, p, alpha, metrics, top_n) {
   best
 }
 
-#' Weight and transition grids of a search.
+#' Validated constraints of a search; NULL means all entries free.
 #'
 #' @param w_fixed optional length-k weight vector; NA = free, a number = fixed.
 #'   A fully specified vector skips the weight simplex (only G is searched).
 #' @param G_fixed optional k x k transition matrix; NA = free, a number =
 #'   fixed. The diagonal must be NA or 0.
-#' @return list(W = matrix with columns w1..wk, Glist = list of k x k matrices)
-build_grids <- function(k, w_step, g_step, w_fixed = NULL, G_fixed = NULL) {
+#' @return list(w_fixed = length-k vector, G_fixed = k x k matrix)
+grid_constraints <- function(k, w_fixed = NULL, G_fixed = NULL) {
   if (is.null(w_fixed)) w_fixed <- rep(NA_real_, k)
   if (length(w_fixed) != k) {
     stop(sprintf("[k=%d] w_fixed must have length %d; got %d.",
                  k, k, length(w_fixed)))
   }
-  if (!is.null(G_fixed)) {
+  if (is.null(G_fixed)) {
+    G_fixed <- matrix(NA_real_, k, k)
+  } else {
     if (!is.matrix(G_fixed) || any(dim(G_fixed) != k)) {
       stop(sprintf("[k=%d] G_fixed must be a %d x %d matrix.", k, k, k))
     }
@@ -384,16 +439,54 @@ build_grids <- function(k, w_step, g_step, w_fixed = NULL, G_fixed = NULL) {
       stop(sprintf("[k=%d] the diagonal of G_fixed must be NA or 0.", k))
     }
   }
-  W <- constrained_simplex(as.numeric(w_fixed), w_step, "w_fixed")
+  list(w_fixed = as.numeric(w_fixed), G_fixed = G_fixed)
+}
+
+#' Weight and transition grids of a search.
+#'
+#' @inheritParams grid_constraints
+#' @return list(W = matrix with columns w1..wk, G_rows = per-row transition
+#'   grids, see transition_rows())
+build_grids <- function(k, w_step, g_step, w_fixed = NULL, G_fixed = NULL) {
+  cons <- grid_constraints(k, w_fixed, G_fixed)
+  W <- constrained_simplex(cons$w_fixed, w_step, "w_fixed")
   colnames(W) <- paste0("w", seq_len(k))
-  list(W = W, Glist = transition_grid(k, g_step, G_fixed))
+  list(W = W, G_rows = transition_rows(k, g_step, cons$G_fixed))
+}
+
+#' Size of the search grid, counted without building it.
+#'
+#' @inheritParams grid_constraints
+#' @return c(n_W = weight vectors, n_G = transition matrices)
+grid_size <- function(k, w_step, g_step, w_fixed = NULL, G_fixed = NULL) {
+  cons <- grid_constraints(k, w_fixed, G_fixed)
+  n_G  <- prod(vapply(seq_len(k), function(i)
+    simplex_count(cons$G_fixed[i, -i], g_step, sprintf("G_fixed row %d", i)),
+    numeric(1)))
+  c(n_W = simplex_count(cons$w_fixed, w_step, "w_fixed"), n_G = n_G)
+}
+
+#' Uniformly random part of the search grid, drawn without building it.
+#'
+#' @inheritParams grid_constraints
+#' @param n_w,n_g number of weight vectors / transition matrices
+#' @return list(W = n_w x k matrix, G_rows = per-row grids of n_g rows each,
+#'   g_ids = n_g ids into G_rows), as taken by search_chunk()
+grid_sample <- function(k, w_step, g_step, n_w, n_g, w_fixed = NULL,
+                        G_fixed = NULL) {
+  cons <- grid_constraints(k, w_fixed, G_fixed)
+  W <- simplex_sample(cons$w_fixed, w_step, n_w, "w_fixed")
+  colnames(W) <- paste0("w", seq_len(k))
+  G_rows <- lapply(seq_len(k), function(i)
+    simplex_sample(cons$G_fixed[i, -i], g_step, n_g, sprintf("G_fixed row %d", i)))
+  list(W = W, G_rows = G_rows, g_ids = sample.int(n_g^k, n_g))
 }
 
 #' Turn a candidate matrix (g_id, w_id, metrics) into the result table.
 #'
 #' @return data.frame: w1..wk, one column per metric, g_id, rank_<metric>
 #'   (NA outside that metric's top_n) and G; sorted by the first metric.
-assemble_best <- function(cand, W, Glist, metric_names, top_n) {
+assemble_best <- function(cand, W, G_rows, metric_names, top_n) {
   nm   <- metric_names
   best <- data.frame(W[cand[, "w_id"], , drop = FALSE],
                      cand[, nm, drop = FALSE],
@@ -403,7 +496,7 @@ assemble_best <- function(cand, W, Glist, metric_names, top_n) {
     best[[paste0("rank_", x)]] <- NA_integer_
     best[[paste0("rank_", x)]][r] <- seq_along(r)
   }
-  best$G <- Glist[best$g_id]
+  best$G <- lapply(best$g_id, transition_matrix, G_rows = G_rows)
   best <- best[rank_order(cand, nm[1], nm), ]
   rownames(best) <- NULL
   best
@@ -432,10 +525,11 @@ grid_search_k <- function(p, alpha, w_step, g_step, top_n, cl = NULL,
   check_metrics(metrics, k)
   nm <- names(metrics)
 
-  grids <- build_grids(k, w_step, g_step, w_fixed, G_fixed)
-  W     <- grids$W
-  Glist <- grids$Glist
-  n_all <- nrow(W) * length(Glist)
+  grids  <- build_grids(k, w_step, g_step, w_fixed, G_fixed)
+  W      <- grids$W
+  G_rows <- grids$G_rows
+  n_G    <- n_transitions(G_rows)
+  n_all  <- nrow(W) * n_G
   if (!is.null(w_fixed)) {
     cat(sprintf("[k=%d] fixed weights (NA = free): %s\n",
                 k, paste(round(w_fixed, 4), collapse = ", ")))
@@ -446,7 +540,7 @@ grid_search_k <- function(p, alpha, w_step, g_step, top_n, cl = NULL,
   }
   cat(sprintf("[k=%d] weight vectors = %s, transition matrices = %s, candidates = %s\n",
               k, format(nrow(W), big.mark = ","),
-              format(length(Glist), big.mark = ","),
+              format(n_G, big.mark = ","),
               format(n_all, big.mark = ",")))
   cat(sprintf("[k=%d] metrics: %s (sim_n = %s)\n", k,
               paste(nm, collapse = ", "), format(nrow(p), big.mark = ",")))
@@ -458,40 +552,41 @@ grid_search_k <- function(p, alpha, w_step, g_step, top_n, cl = NULL,
       "or set allow_large_k = TRUE.")
   }
 
-  g_ids <- seq_along(Glist)
+  g_ids <- seq_len(n_G)
   if (!is.null(shard)) {
-    if (shard[2] > length(Glist)) {
-      stop(sprintf("[k=%d] %d shards exceed the %d transition matrices.",
-                   k, shard[2], length(Glist)))
+    if (shard[2] > n_G) {
+      stop(sprintf("[k=%d] %d shards exceed the %s transition matrices.",
+                   k, shard[2], format(n_G, big.mark = ",")))
     }
-    g_ids <- seq(shard[1], length(Glist), by = shard[2])
+    g_ids <- seq(shard[1], n_G, by = shard[2])
     cat(sprintf("[k=%d] shard %d/%d: %s transition matrices\n",
                 k, shard[1], shard[2], format(length(g_ids), big.mark = ",")))
   }
 
   # One batch of transition matrices per worker.
   n_tasks <- if (is.null(cl)) 1L else min(length(g_ids), length(cl))
-  ids   <- split(g_ids, ceiling(seq_along(g_ids) * n_tasks / length(g_ids)))
-  tasks <- lapply(ids, function(i) list(g_id = i, G = Glist[i]))
+  tasks <- split(g_ids, ceiling(seq_along(g_ids) * n_tasks / length(g_ids)))
 
   t0 <- Sys.time()
   if (!is.null(cl)) {
     parallel::clusterExport(
-      cl, c("intersection_basis", "reject_matrix", "rank_order", "top_union"),
+      cl, c("intersection_basis", "reject_matrix", "rank_order", "top_union",
+            "transition_matrix"),
       envir = environment(search_chunk)
     )
     parallel::clusterEvalQ(cl, requireNamespace("graphicalMCP", quietly = TRUE))
-    parts <- parallel::parLapply(cl, tasks, search_chunk, W = W, p = p,
-                                 alpha = alpha, metrics = metrics, top_n = top_n)
+    parts <- parallel::parLapply(cl, tasks, search_chunk, G_rows = G_rows,
+                                 W = W, p = p, alpha = alpha, metrics = metrics,
+                                 top_n = top_n)
   } else {
-    parts <- lapply(tasks, search_chunk, W = W, p = p, alpha = alpha,
-                    metrics = metrics, top_n = top_n)
+    parts <- lapply(tasks, search_chunk, G_rows = G_rows, W = W, p = p,
+                    alpha = alpha, metrics = metrics, top_n = top_n)
   }
   search_s <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
   cat(sprintf("[k=%d] search time: %.1f s\n", k, search_s))
 
   cand <- top_union(do.call(rbind, parts), nm, top_n)
-  list(best = assemble_best(cand, W, Glist, nm, top_n), k = k, metrics = nm,
+  list(best = assemble_best(cand, W, G_rows, nm, top_n), k = k, metrics = nm,
        n_candidates = nrow(W) * length(g_ids), cand = cand,
        settings = list(alpha = alpha, sim_n = nrow(p), w_step = w_step,
                        g_step = g_step, w_fixed = w_fixed, G_fixed = G_fixed,
@@ -516,7 +611,7 @@ merge_results <- function(parts) {
   k     <- parts[[1]]$k
   cand  <- top_union(do.call(rbind, lapply(parts, `[[`, "cand")), nm, s$top_n)
   grids <- build_grids(k, s$w_step, s$g_step, s$w_fixed, s$G_fixed)
-  list(best = assemble_best(cand, grids$W, grids$Glist, nm, s$top_n), k = k,
+  list(best = assemble_best(cand, grids$W, grids$G_rows, nm, s$top_n), k = k,
        metrics = nm,
        n_candidates = sum(unlist(lapply(parts, `[[`, "n_candidates"))),
        cand = cand, settings = s, shard = NULL,
