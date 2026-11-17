@@ -3,9 +3,9 @@
 # Example: two doses and a secondary endpoint
 
 - **Scenario:** [`example_k3`](../../scenarios/example_k3.R)
-- **Author:** graphicalmcp-bench maintainers
+- **Author:** gogt maintainers
 - **Date:** 2026-11-16
-- **Run:** 2026-11-16, commit `b0e3c85`, R 4.5.2, graphicalMCP 0.2.9
+- **Run:** 2026-11-17, commit `bf3fb0e`, R 4.5.1, graphicalMCP 0.2.9
 
 H1 and H2 test the high and low dose against a shared control, so their statistics are correlated (rho = 0.5). H3 is a secondary endpoint of the high dose: it gets no initial alpha and can only receive alpha from H1, so the low dose (H2) passes everything it frees to H1.
 
@@ -13,7 +13,7 @@ H1 and H2 test the high and low dose against a shared control, so their statisti
 
 - 3 hypotheses, one-sided alpha = 0.025, weighted Bonferroni tests
 - Grid: w_step = 0.05, g_step = 0.1, 2,541 candidate graphs
-- Search: 10,000 simulations (seed 2024), search time 2 s
+- Search: 10,000 simulations (seed 2024), search time 4 s (summed over 16 shards)
 - Re-evaluation: 100,000 independent simulations (seed 2025), standard errors from 20 batch means
 
 **Marginal power**
