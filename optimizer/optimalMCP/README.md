@@ -1,7 +1,7 @@
 # optimalMCP
 
-Weight optimization from the `optimalMCP` package. **Status: placeholder.** It is not yet
-compared against the grid-search reference solutions.
+Weight optimization from the `optimalMCP` package. **Status: placeholder.** No solutions
+have been saved against the grid-search reference solutions yet (see [Usage](#usage)).
 
 ## Method
 
@@ -59,4 +59,16 @@ bench_source("optimizer", "optimalMCP", "expectedRejections.R")
 
 opt <- optim_w_er(alpha = 0.025, mp = c(0.9, 0.8, 0.7), constraint.w = c(NA, NA, 0))
 opt$w
+```
+
+To score it against a scenario's reference and save it to `solutions/<id>/` (see
+*Solutions* in the [README](../../README.md#solutions)), with `G = 0` because the method
+has no transitions:
+
+```r
+bench_source("R", "gridCore.R")
+bench_source("R", "gridRunner.R")
+bench_source("R", "solutions.R")
+bench_save_solution("example_k3", "optimalMCP",
+                    list(er = graphicalMCP::graph_create(opt$w, matrix(0, 3, 3))))
 ```

@@ -54,7 +54,7 @@ check_metrics <- function(metrics, k) {
     stop("metrics must be a non-empty list with unique names.")
   }
   bad <- nm[nm != make.names(nm) |
-            grepl("^(G|g_id|w_id|metric|w[0-9]+|rank_.*|.*_val|.*_se)$", nm)]
+            grepl("^(G|g_id|w_id|metric|time_s|w[0-9]+|rank_.*|.*_val|.*_se)$", nm)]
   if (length(bad)) {
     stop("Invalid or reserved metric name(s): ", paste(bad, collapse = ", "))
   }

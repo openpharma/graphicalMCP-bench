@@ -97,7 +97,8 @@ metrics <- list(
 
 `metrics=er,h1h2` selects / orders the metrics to evaluate (the first one orders the
 output table). To minimize something, return its negative. Metric names must be valid R
-names and not `G`, `g_id`, `w_id`, `metric`, `w<i>`, `rank_*`, `*_val` or `*_se`.
+names and not `G`, `g_id`, `w_id`, `metric`, `time_s`, `w<i>`, `rank_*`, `*_val` or
+`*_se`.
 
 ## Optimizers
 
@@ -111,13 +112,55 @@ The optimization methods to be compared against the grid search live in
 Each folder is self-contained: its own code, its own dependencies and a `README.md`
 that describes the method, its origin and its limits. Optimizers never change `R/`,
 and the grid search never loads anything from `optimizer/`, so the cluster only needs
-the grid's packages. How optimizers are run and scored against the grid is still to be
-designed.
+the grid's packages.
+
+### Solutions
+
+An optimizer proposes one graph per metric for a scenario, as a graphicalMCP graph from
+`graph_create()`, and `bench_save_solution()` (`R/solutions.R`) scores and saves them to
+`solutions/<id>/`, next to `reference/<id>/`:
+
+```r
+source("R/rootPath.R")
+bench_source("R", "gridCore.R")
+bench_source("R", "gridRunner.R")
+bench_source("R", "solutions.R")
+
+sc <- bench_load_scenario(bench_config(), "example_k3")   # sc$alpha, sc$mp_list[[1]], sc$corr, ...
+# ... run the optimizer on the scenario, one graph per metric it optimizes ...
+bench_save_solution("example_k3", "optimalMCP",
+  graphs = list(er = graphicalMCP::graph_create(w_opt, matrix(0, 3, 3))),
+  time_s = c(er = 0.2),
+  info   = list(version = "vendored optim_w_er"))
+```
+
+The hypotheses must be named `H1..Hk` in the scenario's order (`graph_create()`'s
+default for unnamed weights).
+
+The graphs are re-evaluated by the grid's rejection engine on **the same p-values as the
+reference's re-evaluation** (its `validate_n` and `validate_seed`), so their values
+compare directly with the reference `_val` columns. The difference to the reference
+graph of the same metric is paired (same simulations), so its standard error shrinks as
+the two graphs get closer. The function stops if:
+
+- `reference/<id>/` is missing, was run with overrides or `validate_n=0`, or no longer
+  matches `scenarios/<id>.R` (alpha, `mp`, `corr`, constraints, metric definitions);
+- a graph is invalid for graphicalMCP or breaks the scenario's `w_fixed` / `G_fixed`;
+- the reference values cannot be reproduced (e.g. graphicalMCP changed its simulation).
+
+It writes `solutions/<id>/<method>.rds` (scored table, the input graphs, settings,
+`info`, provenance) and
+`<method>_best.csv` with one row per proposed graph: `metric`, `w1..wk`,
+`<m>_val` / `<m>_se` for every metric `m`, `ref_val` (the reference graph's value on
+that metric), `diff_val` / `diff_se` (solution minus reference, paired), `time_s` and
+`G` (column-major, full precision). Pass `out_dir="results/..."` for trial runs that
+should not be committed, or `save = FALSE` to score only. The scenario pages in `docs/`
+do not show solutions yet.
 
 ## Layout
 
 ```
-CONTRIBUTING.md        how to add a scenario
+CONTRIBUTING.md        how to add a scenario or an optimizer solution
 R/
   rootPath.R           bench_root() / bench_source(): cwd-independent path resolution
   analytic.R           closed-form E[R] (any correlation) and DP/CP (independence) for G = 0
@@ -125,6 +168,7 @@ R/
                        re-evaluation, saving
   gridRunner.R         config, CLI parsing, scenario loading, verification, main loop
   report.R             markdown pages of scenario results
+  solutions.R          bench_save_solution(): score optimizer graphs against the reference
 scenarios/
   _template.R          documented template (copy to <id>.R)
   <id>.R               one shared example per file
@@ -141,6 +185,7 @@ cluster/
   slurm/submit_array.sh  Slurm job array: independent shards + merge job
   slurm/srun-rsh.sh    starts remote PSOCK workers via srun instead of ssh
 reference/<id>/        committed scenario reference solutions
+solutions/<id>/        committed optimizer solutions: <method>.rds, <method>_best.csv
 results/               ad-hoc runs (local, not committed)
 docs/                  generated: README.md (index) + scenarios/<id>.md
 ```

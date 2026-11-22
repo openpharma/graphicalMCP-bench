@@ -12,6 +12,6 @@ logs/
 # Large ad-hoc candidate dumps can be gigabytes.
 *_full.rds
 
-# Only scenario results (reference/<id>/) are shared; ad-hoc runs and job-array
-# shards write into results/, which is created on demand and stays local.
+# Only scenario results (reference/<id>/, solutions/<id>/) are shared; ad-hoc runs
+# and job-array shards write into results/, which is created on demand and stays local.
 results/
