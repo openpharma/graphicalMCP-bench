@@ -420,11 +420,52 @@ smoke_test <- function(cfg, n_g = 10L, n_w = 200L, n_val = 5L,
   metrics <- bench_resolve_metrics(cfg)
   m       <- length(metrics)
   since   <- function(t0) as.numeric(difftime(Sys.time(), t0, units = "secs"))
-  heap    <- function(col) sum(gc()[, col])   # col 2 = used, 6 = max used (Mb)
-  rss     <- function() {                      # resident MB; NA off Linux
-    f <- "/proc/self/status"
-    if (!file.exists(f)) return(NA_real_)
-    as.numeric(gsub("[^0-9]", "", grep("^VmRSS:", readLines(f), value = TRUE))) / 1024
+  heap_mb <- function(which_mb) {
+    # gc() output varies by R version; use column names for robustness.
+    # which_mb: "used" for current heap, "max used" for peak heap (both in MB)
+    gc_out <- gc()
+    # Look for the MB column following the requested metric
+    if (which_mb == "used") {
+      col_idx <- which(colnames(gc_out) == "(Mb)")[1]  # first (Mb) after "used"
+    } else if (which_mb == "max used") {
+      col_idx <- which(colnames(gc_out) == "(Mb)")[3]  # third (Mb) after "max used"
+    } else {
+      stop("heap_mb: which_mb must be 'used' or 'max used'")
+    }
+    if (length(col_idx) == 0 || is.na(col_idx)) {
+      # Fallback: try direct column access for older/newer R versions
+      if (which_mb == "used") col_idx <- 2 else col_idx <- 7
+    }
+    sum(gc_out[, col_idx])
+  }
+  rss     <- function() {
+    # Resident set size in MB; measured per platform.
+    # Linux: /proc/self/status
+    if (file.exists("/proc/self/status")) {
+      return(as.numeric(gsub("[^0-9]", "", grep("^VmRSS:", readLines("/proc/self/status"), value = TRUE))) / 1024)
+    }
+    # macOS: use ps output (in KB, convert to MB)
+    if (Sys.info()["sysname"] == "Darwin") {
+      pid <- Sys.getpid()
+      tryCatch({
+        ps_out <- system(sprintf("ps -p %d -o rss=", pid), intern = TRUE, ignore.stderr = TRUE)
+        if (length(ps_out) > 0 && ps_out != "") return(as.numeric(ps_out) / 1024)
+      }, error = function(e) NA_real_)
+    }
+    # Windows: use tasklist (in KB, convert to MB); requires PID lookup
+    if (Sys.info()["sysname"] == "Windows") {
+      pid <- Sys.getpid()
+      tryCatch({
+        cmd <- sprintf("tasklist /FI \"PID eq %d\" /FO list", pid)
+        output <- system(cmd, intern = TRUE, ignore.stderr = TRUE)
+        mem_line <- grep("Mem Usage", output, value = TRUE)
+        if (length(mem_line) > 0) {
+          kb_str <- gsub("[^0-9]", "", mem_line)
+          return(as.numeric(kb_str) / 1024)
+        }
+      }, error = function(e) NA_real_)
+    }
+    NA_real_
   }
   big     <- function(x) format(x, big.mark = ",", scientific = x >= 1e15)
   fmt_s   <- function(s) {
@@ -463,12 +504,12 @@ smoke_test <- function(cfg, n_g = 10L, n_w = 200L, n_val = 5L,
     t0 <- Sys.time()
     for (G in Gs) intersection_basis(G)
     c_G <- since(t0) / s_g
-    overhead <- rss() - heap(2)
+    overhead <- rss() - heap_mb("used")
     gc(reset = TRUE)
     t0 <- Sys.time()
     search_chunk(smp$g_ids, smp$G_rows, smp$W, p, cfg$alpha, metrics, cfg$top_n)
     c_w    <- max(since(t0) - c_G * s_g, 0) / (s_g * s_w)
-    heap_s <- heap(6)
+    heap_s <- heap_mb("max used")
     core_s <- n_G * (c_G + n_W * c_w)
 
     n_keep <- min(cfg$top_n * m, n_W * n_G)
@@ -487,7 +528,7 @@ smoke_test <- function(cfg, n_g = 10L, n_w = 200L, n_val = 5L,
       t0 <- Sys.time()
       validate_best(kept, p_val, cfg$alpha, metrics)
       val_s  <- sim_s + n_keep * since(t0) / length(idx)
-      heap_v <- heap(6)
+      heap_v <- heap_mb("max used")
       rm(p_val)
     }
 
@@ -530,7 +571,7 @@ smoke_test <- function(cfg, n_g = 10L, n_w = 200L, n_val = 5L,
                 fmt_s(startup_s)))
     cat(sprintf("memory      %s per worker, %s main process%s\n",
                 fmt_mb(est$worker_mb), fmt_mb(est$main_mb),
-                if (is.na(overhead)) " (R heap only; process overhead measured on Linux)" else ""))
+                if (is.na(overhead)) " (R heap only; process overhead not available)" else " (includes process overhead)"))
     cat(sprintf("single job  %d cores: wall time %s, memory %s\n",
                 cores, fmt_s(est$single_s), fmt_mb(est$single_mb)))
     cat(sprintf("job array   %d shards x %d cores: wall time %s, memory %s per shard\n",
