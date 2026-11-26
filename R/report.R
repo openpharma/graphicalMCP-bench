@@ -91,7 +91,6 @@ render_scenario_md <- function(res) {
   v  <- res$validation
   H  <- paste0("H", seq_len(k))
   w_cols <- paste0("w", seq_len(k))
-  top1 <- best_per_metric(res)
   link <- function(f) sprintf("[`%s`](../../reference/%s/%s)", f, sc$id, f)
 
   out <- c(
@@ -113,21 +112,28 @@ render_scenario_md <- function(res) {
   }
 
   ## -- Setup ------------------------------------------------------------------
-  search_time <- sprintf("search time %.0f s%s", res$search_s,
-                         if (!is.null(res$n_shards)) {
-                           sprintf(" (summed over %d shards)", res$n_shards)
-                         } else "")
+  grid <- !isFALSE(s$grid)
+  free <- if (grid) "searched" else "left to the optimizers"
   out <- c(out, "## Setup", "",
     sprintf("- %d hypotheses, one-sided alpha = %s, weighted Bonferroni tests",
             k, s$alpha),
-    sprintf("- Grid: w_step = %s, g_step = %s, %s candidate graphs",
-            s$w_step, s$g_step, fmt_int(res$n_candidates)),
-    sprintf("- Search: %s simulations (seed %s), %s",
-            fmt_int(s$sim_n), s$seed, search_time),
-    if (!is.null(v)) {
-      sprintf("- Re-evaluation: %s independent simulations (seed %s), standard errors from %d batch means",
+    if (grid) c(
+      sprintf("- Grid: w_step = %s, g_step = %s, %s candidate graphs",
+              s$w_step, s$g_step, fmt_int(res$n_candidates)),
+      sprintf("- Search: %s simulations (seed %s), search time %.0f s%s",
+              fmt_int(s$sim_n), s$seed, res$search_s,
+              if (!is.null(res$n_shards)) {
+                sprintf(" (summed over %d shards)", res$n_shards)
+              } else ""),
+      if (!is.null(v)) {
+        sprintf("- Re-evaluation: %s independent simulations (seed %s), standard errors from %d batch means",
+                fmt_int(v$sim_n), v$seed, v$n_batch)
+      }
+    ) else c(
+      "- Grid search: off (`grid = FALSE`), so there are no reference graphs",
+      sprintf("- Evaluation: %s simulations (seed %s) shared by all optimizer solutions, standard errors from %d batch means",
               fmt_int(v$sim_n), v$seed, v$n_batch)
-    },
+    ),
     "", "**Marginal power**", "",
     md_table(c("", H), c("Power", fmt_w(s$mp))),
     "", "**Correlation of the test statistics**", "",
@@ -137,22 +143,33 @@ render_scenario_md <- function(res) {
     "", "**Constraints**", ""
   )
   if (is.null(s$w_fixed) && is.null(s$G_fixed)) {
-    out <- c(out, "None: all weights and transitions are searched.", "")
+    out <- c(out, sprintf("None: all weights and transitions are %s.", free), "")
   }
   if (!is.null(s$w_fixed)) {
-    out <- c(out, "Weights (free = searched):", "",
+    out <- c(out, sprintf("Weights (free = %s):", free), "",
              md_table(c("", H), c("Weight", fix_cell(s$w_fixed))), "")
   }
   if (!is.null(s$G_fixed)) {
-    out <- c(out, "Transitions (free = searched):", "", G_table(s$G_fixed, fix_cell), "")
+    out <- c(out, sprintf("Transitions (free = %s):", free), "",
+             G_table(s$G_fixed, fix_cell), "")
   }
   out <- c(out,
     "**Metrics** (maximized; `R` is the simulations x hypotheses rejection matrix)", "",
     md_table(c("Metric", "Definition"), cbind(md_code(nm), md_code(m$metric_defs[nm]))),
     ""
   )
+  if (!grid) {
+    return(c(out, "## Reference graphs", "",
+      paste0("None: the grid search is off for this scenario. The optimizer solutions in ",
+             "`solutions/", sc$id, "/` are all scored on the evaluation simulations above, ",
+             "so they compare directly with each other."), "",
+      "## Files", "",
+      sprintf("- %s: settings and evaluation simulations the solutions are scored on, read with `readRDS()`",
+              link(paste0(sc$id, ".rds")))))
+  }
 
   ## -- Optimal graphs ----------------------------------------------------------
+  top1  <- best_per_metric(res)
   trade <- vapply(nm, function(x) {
     e <- metric_est(res, top1, x)
     on <- top1$metric == x
@@ -235,7 +252,9 @@ render_index_md <- function(all) {
     c(sprintf("[%s](scenarios/%s.md)", sc$title, id), sc$author, r$k, s$alpha,
       paste(fmt_w(s$mp), collapse = ", "), corr_summary(s$corr, r$k),
       constraints_summary(s),
-      sprintf("`%s` = %s", x, metric_est(r, best_per_metric(r)[1, , drop = FALSE], x)))
+      if (isFALSE(s$grid)) "none (no grid search)" else {
+        sprintf("`%s` = %s", x, metric_est(r, best_per_metric(r)[1, , drop = FALSE], x))
+      })
   }, character(8)))
   c(head,
     "The last column is the optimum of each scenario's first metric (re-evaluated, \u00b1 MC standard error).",

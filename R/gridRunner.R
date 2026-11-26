@@ -37,6 +37,9 @@ bench_config <- function(...) {
     metric_select  = NULL,
 
     ## -- Grid resolution ------------------------------------------------------
+    # FALSE (scenarios only): no search; bench_no_grid() records only the
+    # settings and simulations that optimizer solutions are scored on.
+    grid           = TRUE,
     w_step         = 0.05,        # step for the hypothesis-weight simplex
     g_step         = 0.1,         # step for the transition-weight simplex (per row)
 
@@ -187,9 +190,14 @@ bench_parse_cli <- function(cfg, args = commandArgs(trailingOnly = TRUE)) {
 # Fields a scenario file may set; anything else is an error.
 BENCH_SCENARIO_FIELDS <- c(
   "title", "author", "date", "description",
-  "alpha", "mp", "corr", "metrics", "w_fixed", "G_fixed",
+  "alpha", "mp", "corr", "metrics", "w_fixed", "G_fixed", "grid",
   "w_step", "g_step", "sim_n", "seed", "top_n", "validate_n", "validate_seed",
   "allow_large_k", "max_candidates"
+)
+
+# Fields (and CLI keys) that only configure the search; errors with grid = FALSE.
+BENCH_GRID_FIELDS <- c(
+  "w_step", "g_step", "sim_n", "seed", "top_n", "allow_large_k", "max_candidates"
 )
 
 #' Path of a scenario given as an id (scenarios/<id>.R) or a file path.
@@ -233,6 +241,13 @@ bench_load_scenario <- function(cfg, x) {
     if (is.null(sc[[f]])) stop("Scenario ", id, " must set `", f, "`.")
   }
   if (any(sc$mp <= 0 | sc$mp >= 1)) stop("Scenario ", id, ": mp must be in (0, 1).")
+  if (!is.null(sc$grid) && !isTRUE(sc$grid) && !isFALSE(sc$grid)) {
+    stop("Scenario ", id, ": grid must be TRUE or FALSE.")
+  }
+  if (isFALSE(sc$grid) && length(intersect(names(sc), BENCH_GRID_FIELDS))) {
+    stop("Scenario ", id, " sets grid = FALSE, so it has no grid search; delete ",
+         paste(intersect(names(sc), BENCH_GRID_FIELDS), collapse = ", "), ".")
+  }
 
   k <- length(sc$mp)
   cfg$run_k   <- k
@@ -620,6 +635,7 @@ merge_shards <- function(shard_dir, stem, n) {
 #' @return invisibly, a named list of results per k
 bench_main <- function(cfg) {
   bench_check_deps()
+  if (isFALSE(cfg$grid)) return(bench_no_grid(cfg))
   if (isTRUE(cfg$smoke)) {
     if (!is.null(cfg$shard) || !is.null(cfg$merge_shards)) {
       stop("smoke=TRUE cannot be combined with shard= or merge_shards=.")
@@ -734,6 +750,80 @@ bench_main <- function(cfg) {
     report_best(res)
   }
   invisible(results)
+}
+
+
+#' Run a scenario with grid = FALSE: the checks, then a reference without graphs.
+#'
+#' Nothing is searched. The result records the scenario's settings and the
+#' simulations every optimizer solution is scored on (validate_n,
+#' validate_seed), with the column sums of their p-values so that
+#' bench_save_solution() notices when they can no longer be reproduced. It is
+#' written to reference/<id>/<id>.rds and the scenario page is rendered.
+#' smoke=TRUE runs the checks only.
+#'
+#' @param cfg config list of a scenario with grid = FALSE
+#' @return invisibly, list(k<k> = result), or NULL for smoke=TRUE
+bench_no_grid <- function(cfg) {
+  sc <- cfg$scenario
+  if (is.null(sc)) stop("grid = FALSE is only available in scenario files.")
+  if (!is.null(cfg$shard) || !is.null(cfg$merge_shards)) {
+    stop("Scenario ", sc$id, " has grid = FALSE: there is no search to split ",
+         "into shards; run it as a single job.")
+  }
+  bad <- intersect(sub("=.*$", "", cfg$overrides), BENCH_GRID_FIELDS)
+  if (length(bad)) {
+    stop("Scenario ", sc$id, " has grid = FALSE, so ", paste(bad, collapse = ", "),
+         " cannot be set.")
+  }
+  if (!isTRUE(cfg$validate_n > 0)) {
+    stop("Scenario ", sc$id, " has grid = FALSE: validate_n must be > 0, it is ",
+         "the number of simulations the solutions are scored on.")
+  }
+  k       <- cfg$run_k
+  mp      <- cfg$mp_list[[paste0("k", k)]]
+  metrics <- bench_resolve_metrics(cfg)
+  check_metrics(metrics, k)
+  corr <- bench_corr(cfg$corr, k)
+  cons <- grid_constraints(k, cfg$w_fixed, cfg$G_fixed)
+  check_fixed(cons$w_fixed, "w_fixed")
+  for (i in seq_len(k)) check_fixed(cons$G_fixed[i, -i], sprintf("G_fixed row %d", i))
+  cat(sprintf("[k=%d] grid search off: no reference graphs, metrics: %s\n",
+              k, paste(names(metrics), collapse = ", ")))
+
+  verify_engine(k, cfg$alpha, mp)
+  v_seed <- if (is.null(cfg$validate_seed)) cfg$seed + 1L else cfg$validate_seed
+  p_val  <- simulate_pvalues(k, cfg$alpha, mp, cfg$validate_n, v_seed, corr)
+  verify_zero_transition(p_val, cfg$alpha, mp, metrics, indep = all(corr == diag(k)))
+  n_txt <- format(nrow(p_val), big.mark = ",", scientific = FALSE)
+  if (isTRUE(cfg$smoke)) {
+    cat(sprintf(paste("[smoke] checks passed; no grid to estimate. Solutions will be",
+                      "scored on %s simulations (seed %d).\n"), n_txt, v_seed))
+    return(invisible(NULL))
+  }
+
+  res <- list(
+    k          = k,
+    metrics    = names(metrics),
+    settings   = list(alpha = cfg$alpha, mp = mp, corr = corr,
+                      w_fixed = cfg$w_fixed, G_fixed = cfg$G_fixed, grid = FALSE),
+    # n_batch as in validate_top(), so standard errors match grid scenarios.
+    validation = list(sim_n = nrow(p_val), n_batch = 20L, seed = v_seed,
+                      p_colsums = colSums(p_val)),
+    meta       = bench_run_meta(cfg, metrics)
+  )
+  if (cfg$save_results) {
+    out_dir <- cfg$out_dir
+    if (!grepl("^(/|\\\\|[A-Za-z]:)", out_dir)) out_dir <- file.path(bench_root(), out_dir)
+    dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+    # Graph tables left by an earlier run with grid = TRUE would be stale.
+    unlink(file.path(out_dir, paste0(sc$id, c("_best.csv", "_top.csv"))))
+    saveRDS(res, file.path(out_dir, paste0(sc$id, ".rds")))
+    cat(sprintf("[k=%d] settings and %s evaluation simulations (seed %d) written to %s.rds\n",
+                k, n_txt, v_seed, file.path(out_dir, sc$id)))
+    if (identical(cfg$out_dir, file.path("reference", sc$id))) bench_render_docs(sc$id)
+  }
+  invisible(stats::setNames(list(res), paste0("k", k)))
 }
 
 

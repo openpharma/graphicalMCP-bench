@@ -9,6 +9,8 @@
 # Full run, locally or on a cluster:
 #     Rscript scripts/gridSearchGraph.R scenario=<id>
 #     bash cluster/slurm/submit.sh scenario=<id>
+# With grid = FALSE the full run takes seconds: it only records the settings
+# and simulations that optimizer solutions are scored on.
 #
 # Required: title, author, alpha, mp. Every other field can be deleted; the
 # values below are the defaults.
@@ -47,14 +49,20 @@ scenario <- list(
   #                    NA, NA, NA,
   #                     0, NA, NA), 3, byrow = TRUE),
 
-  ## -- Grid and simulation ----------------------------------------------------
+  ## -- Grid search ------------------------------------------------------------
+  # FALSE when no grid is feasible: no reference graphs, only the optimizer
+  # solutions are compared. Then delete w_step, g_step, sim_n, seed, top_n,
+  # allow_large_k and max_candidates (they configure the search only).
+  grid           = TRUE,
   w_step         = 0.05,            # weight grid step (1/step an integer)
   g_step         = 0.1,             # transition grid step
   sim_n          = 1e4,             # simulations shared by all candidates
-  seed           = 2024,
+  seed           = 2026,
   top_n          = 50,              # graphs kept per metric
-  validate_n     = 1e5,             # fresh simulations to re-evaluate them (0 = skip)
-  validate_seed  = NULL,            # NULL = seed + 1
   allow_large_k  = FALSE,           # TRUE allows more than max_candidates (k >= 4)
-  max_candidates = 1e8
+  max_candidates = 1e8,
+
+  ## -- Re-evaluation (scores the kept graphs and every optimizer solution) -----
+  validate_n     = 1e5,             # fresh simulations (0 = skip; > 0 if grid = FALSE)
+  validate_seed  = NULL             # NULL = seed + 1
 )

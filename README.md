@@ -9,7 +9,9 @@ correlation and metrics. A brute-force grid search over the graphs `(w, G)`
 gives the scenario's **reference solution**, the best graph for each metric.
 Optimizer solutions are scored against it. The reference is optimal only on the
 grid and up to Monte-Carlo error, so an optimizer that searches continuously
-may beat it.
+may beat it. Where no grid is feasible (large k), a scenario can turn the grid
+search off (`grid = FALSE`); its optimizer solutions are then compared with
+each other on the same simulations.
 
 The results of all scenarios are in the [scenario index](docs/README.md).
 

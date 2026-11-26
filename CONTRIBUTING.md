@@ -35,6 +35,12 @@ correlation, metrics and optional constraints. Each scenario is one R file in
 
    This writes `reference/<id>/` (`<id>.rds`, `<id>_best.csv`, `<id>_top.csv`)
    and `docs/scenarios/<id>.md`, and updates `docs/README.md`.
+
+   If no grid is feasible, set `grid = FALSE` in the scenario (see
+   [Without grid search](scenarios/README.md#without-grid-search)). Steps 3 and
+   4 then take seconds and need no cluster; the run writes only
+   `reference/<id>/<id>.rds`, the settings and simulations that optimizer
+   solutions are scored on.
 5. **Review** `docs/scenarios/<id>.md`. It must not show the
    "command-line overrides" note.
 6. **Commit** and open a merge request:
@@ -59,7 +65,8 @@ correlation, metrics and optional constraints. Each scenario is one R file in
 # Contributing an optimizer solution
 
 A **solution** is the graph an optimization method proposes for each metric of
-a scenario, scored on the same simulations as the scenario's reference.
+a scenario, scored on the same simulations as the scenario's reference (or, for
+scenarios with `grid = FALSE`, as the other solutions).
 
 1. **Branch:** `git switch -c solution/<method>`.
 2. **Method folder:** put the code in `optimizer/<method>/` with a `README.md`

@@ -20,10 +20,11 @@ the repository, follow [CONTRIBUTING.md](../CONTRIBUTING.md).
 | `corr` | no | Correlation of the test statistics (independence) |
 | `metrics` | no | Metrics to maximize (`er`, `dp`, `cp`) |
 | `w_fixed`, `G_fixed` | no | Constraints on weights and transitions (none) |
+| `grid` | no | `FALSE` turns the grid search off (`TRUE`; see [Without grid search](#without-grid-search)) |
 | `w_step`, `g_step` | no | Grid steps for the weights (0.05) and transitions (0.1) |
 | `sim_n`, `seed` | no | Simulations shared by all candidates (1e4) and their seed (2024) |
 | `top_n` | no | Graphs kept per metric (50; at most 50 for committed results) |
-| `validate_n`, `validate_seed` | no | Fresh simulations to re-evaluate the kept graphs (1e5) and their seed (`seed + 1`) |
+| `validate_n`, `validate_seed` | no | Fresh simulations to re-evaluate the kept graphs and score optimizer solutions (1e5) and their seed (`seed + 1`) |
 | `allow_large_k`, `max_candidates` | no | Safety gate for large grids (`FALSE`, 1e8; see [Feasibility](#feasibility)) |
 
 Any other field is an error. Delete the fields you leave at their defaults.
@@ -95,7 +96,36 @@ matrices). With a fine grid (`w_step = 0.01`, `g_step = 0.05`):
 For `k > 3` you therefore need a much coarser grid **and**
 `allow_large_k=TRUE`. Runs above `max_candidates` stop otherwise. Fixed entries
 (`w_fixed`, `G_fixed`) shrink both factors. The smoke test prints the grid size
-and the estimated cost before you commit to a run.
+and the estimated cost before you commit to a run. If no grid is feasible, turn
+it off and compare the optimizers only (see below).
+
+## Without grid search
+
+`grid = FALSE` skips the grid search, so the scenario has no reference graphs.
+The optimizers are then compared with each other only:
+
+```r
+scenario <- list(
+  title = "Five endpoints", author = "Your Name",
+  alpha = 0.025, mp = c(0.90, 0.85, 0.80, 0.70, 0.60),
+  grid  = FALSE
+)
+```
+
+- The run (`Rscript scripts/gridSearchGraph.R scenario=<id>`) takes seconds and
+  needs no cluster. It runs the checks and writes `reference/<id>/<id>.rds` with
+  the settings and the evaluation simulations (`validate_n`, `validate_seed`).
+  It also renders the scenario page. Job arrays (`shard`, `merge_shards`) are
+  errors.
+- Every optimizer solution is scored on these simulations, so solutions compare
+  directly with each other. Their `ref_val`, `diff_val` and `diff_se` are `NA`
+  (see [optimizer/README.md](../optimizer/README.md#solutions)).
+- `w_step`, `g_step`, `sim_n`, `seed`, `top_n`, `allow_large_k` and
+  `max_candidates` only configure the search, so setting them is an error, in
+  the file or on the command line. `validate_n` must be greater than 0. The
+  evaluation seed defaults to 2025; set `validate_seed` to change it.
+- To add the grid search later, remove `grid = FALSE`, re-run the scenario and
+  every solution in `solutions/<id>/`.
 
 ## Running a scenario
 
@@ -105,7 +135,8 @@ Rscript scripts/gridSearchGraph.R scenario=<id>              # full run
 ```
 
 A full run writes `reference/<id>/<id>.rds`, `<id>_best.csv` and `<id>_top.csv`,
-renders `docs/scenarios/<id>.md` and updates `docs/README.md`.
+renders `docs/scenarios/<id>.md` and updates `docs/README.md`. With
+`grid = FALSE` it writes only `<id>.rds`.
 
 - [scripts/README.md](../scripts/README.md): command-line overrides and the
   contents of the output files.

@@ -5,7 +5,10 @@
 # are re-evaluated with the grid's rejection engine on the SAME independent
 # p-values as reference/<id>/ (its validation seed and size), so their values
 # compare directly with the reference `_val` columns, and the difference to the
-# reference graph is paired (common random numbers).
+# reference graph is paired (common random numbers). Scenarios with
+# grid = FALSE have no reference graphs: every solution is still scored on the
+# same simulations, so solutions compare with each other, and ref_val /
+# diff_val / diff_se are NA.
 #
 # DEPENDENCIES: R/rootPath.R, R/gridCore.R, R/gridRunner.R.
 # =============================================================================
@@ -15,10 +18,10 @@
 #' Writes <out_dir>/<method>.rds (full result) and <method>_best.csv (one row
 #' per metric: metric, w1..wk, <m>_val / <m>_se for every metric m, ref_val =
 #' the reference graph's value, diff_val / diff_se = solution minus reference
-#' with paired SE, time_s, G column-major).
+#' with paired SE (all NA with grid = FALSE), time_s, G column-major).
 #'
 #' @param id scenario id; reference/<id>/<id>.rds must exist and match
-#'   scenarios/<id>.R
+#'   scenarios/<id>.R (with grid = FALSE it holds no graphs, only the settings)
 #' @param method optimizer name, used as the file stem (e.g. "optimalMCP")
 #' @param graphs named list, one graphicalMCP graph (graph_create()) per metric
 #'   the method optimizes; hypotheses named H1..Hk in the scenario's order
@@ -55,13 +58,15 @@ bench_save_solution <- function(id, method, graphs, time_s = NULL, info = NULL,
   }
   metrics <- metrics[nm]
   meta    <- bench_run_meta(cfg, metrics)
+  grid    <- !isFALSE(s$grid)
   same <- isTRUE(all.equal(
     list(cfg$alpha, cfg$mp_list[[1]], bench_corr(cfg$corr, k), cfg$w_fixed,
-         cfg$G_fixed, meta$metric_defs),
-    list(s$alpha, s$mp, s$corr, s$w_fixed, s$G_fixed, ref$meta$metric_defs[nm])))
+         cfg$G_fixed, meta$metric_defs, !isFALSE(cfg$grid)),
+    list(s$alpha, s$mp, s$corr, s$w_fixed, s$G_fixed, ref$meta$metric_defs[nm], grid)))
   if (length(ref$meta$overrides) || !same) {
     stop("reference/", id, " does not match scenarios/", id, ".R (changed since, ",
-         "or run with overrides); re-run the grid search first.")
+         "or run with overrides); re-run scripts/gridSearchGraph.R scenario=", id,
+         " first.")
   }
 
   if (!is.list(graphs) || !length(graphs) || is.null(names(graphs)) ||
@@ -104,6 +109,13 @@ bench_save_solution <- function(id, method, graphs, time_s = NULL, info = NULL,
   }
 
   p_val   <- simulate_pvalues(k, s$alpha, s$mp, v$sim_n, v$seed, s$corr)
+  # Without reference graphs, the p-values themselves show whether the
+  # simulations are still those of the other solutions.
+  if (!grid && !isTRUE(all.equal(colSums(p_val), v$p_colsums))) {
+    stop("Could not reproduce the simulations of reference/", id, "; was graphicalMCP ",
+         "updated since? Re-run scripts/gridSearchGraph.R scenario=", id,
+         " and every solution in solutions/", id, "/.")
+  }
   n       <- nrow(p_val)
   batches <- split(seq_len(n), ceiling(seq_len(n) * v$n_batch / n))
   score <- function(w, G) {
@@ -115,27 +127,32 @@ bench_save_solution <- function(id, method, graphs, time_s = NULL, info = NULL,
          }, numeric(length(nm))), length(nm), dimnames = list(nm, NULL)))
   }
 
-  top1 <- best_per_metric(ref)
+  top1 <- if (grid) best_per_metric(ref)
   rows <- lapply(xs, function(x) {
-    i   <- match(x, top1$metric)
     sol <- score(w_of(x), G_of(x))
-    rf  <- score(unlist(top1[i, paste0("w", seq_len(k))]), top1$G[[i]])
-    # Same p-values as the reference validation, or the comparison is not paired.
-    if (!isTRUE(all.equal(rf$val[[x]], top1[[paste0(x, "_val")]][i]))) {
-      stop("Could not reproduce the reference value of '", x, "' (",
-           rf$val[[x]], " vs ", top1[[paste0(x, "_val")]][i], "); was graphicalMCP ",
-           "updated since the reference run? Re-run the grid search.")
-    }
-    se <- apply(sol$by_b, 1, stats::sd) / sqrt(v$n_batch)
+    se  <- apply(sol$by_b, 1, stats::sd) / sqrt(v$n_batch)
     out <- data.frame(metric = x, t(w_of(x)))
     names(out)[-1] <- paste0("w", seq_len(k))
     for (m in nm) {
       out[[paste0(m, "_val")]] <- sol$val[[m]]
       out[[paste0(m, "_se")]]  <- se[[m]]
     }
-    out$ref_val  <- rf$val[[x]]
-    out$diff_val <- sol$val[[x]] - rf$val[[x]]
-    out$diff_se  <- stats::sd(sol$by_b[x, ] - rf$by_b[x, ]) / sqrt(v$n_batch)
+    out$ref_val  <- NA_real_
+    out$diff_val <- NA_real_
+    out$diff_se  <- NA_real_
+    if (grid) {
+      i  <- match(x, top1$metric)
+      rf <- score(unlist(top1[i, paste0("w", seq_len(k))]), top1$G[[i]])
+      # Same p-values as the reference validation, or the comparison is not paired.
+      if (!isTRUE(all.equal(rf$val[[x]], top1[[paste0(x, "_val")]][i]))) {
+        stop("Could not reproduce the reference value of '", x, "' (",
+             rf$val[[x]], " vs ", top1[[paste0(x, "_val")]][i], "); was graphicalMCP ",
+             "updated since the reference run? Re-run the grid search.")
+      }
+      out$ref_val  <- rf$val[[x]]
+      out$diff_val <- sol$val[[x]] - rf$val[[x]]
+      out$diff_se  <- stats::sd(sol$by_b[x, ] - rf$by_b[x, ]) / sqrt(v$n_batch)
+    }
     out$time_s   <- if (is.null(time_s)) NA_real_ else unname(time_s[x])
     out
   })
@@ -149,13 +166,18 @@ bench_save_solution <- function(id, method, graphs, time_s = NULL, info = NULL,
                                git_commit = ref$meta$git_commit),
               info = info, meta = meta)
 
-  cat(sprintf("[solution] %s on %s: re-evaluated on %s simulations (seed %d), as the reference\n",
-              method, id, format(v$sim_n, big.mark = ",", scientific = FALSE), v$seed))
+  cat(sprintf("[solution] %s on %s: re-evaluated on %s simulations (seed %d), as the %s\n",
+              method, id, format(v$sim_n, big.mark = ",", scientific = FALSE), v$seed,
+              if (grid) "reference" else "other solutions (no grid reference)"))
   for (j in seq_len(nrow(best))) {
     x <- best$metric[j]
-    cat(sprintf("  %-6s %.5f +/- %.5f   reference %.5f   diff %+.5f +/- %.5f\n",
-                x, best[[paste0(x, "_val")]][j], best[[paste0(x, "_se")]][j],
-                best$ref_val[j], best$diff_val[j], best$diff_se[j]))
+    cat(sprintf("  %-6s %.5f +/- %.5f", x, best[[paste0(x, "_val")]][j],
+                best[[paste0(x, "_se")]][j]))
+    if (grid) {
+      cat(sprintf("   reference %.5f   diff %+.5f +/- %.5f",
+                  best$ref_val[j], best$diff_val[j], best$diff_se[j]))
+    }
+    cat("\n")
   }
 
   if (save) {

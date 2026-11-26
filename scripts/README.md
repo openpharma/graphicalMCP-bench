@@ -54,6 +54,13 @@ Rscript scripts/gridSearchGraph.R 0.90 0.80 0.70 metrics_file=my_metrics.R metri
   array. The cluster scripts set them; see [cluster/README.md](../cluster/README.md).
 - **`stem_prefix`** keeps ad-hoc runs with different metric sets apart.
 
+A scenario with `grid = FALSE` is not searched: the run (or `smoke=TRUE`) only
+runs the checks, and the full run writes `reference/<id>/<id>.rds` with the
+settings and evaluation simulations that optimizer solutions are scored on.
+The search options (`sim_n`, `w_step`, `g_step`, `seed`, `top_n`,
+`allow_large_k`, `max_candidates`, `shard`, `merge_shards`) are errors there.
+See [Without grid search](../scenarios/README.md#without-grid-search).
+
 See [scenarios/README.md](../scenarios/README.md) for correlation, constraints
 and metrics.
 
@@ -129,6 +136,11 @@ different settings do not overwrite each other. For job arrays, see
   - `validation`: sim_n, seed and batches;
   - `meta`: scenario, overrides, run date, git commit, R and graphicalMCP
     versions, and metric definitions.
+
+With `grid = FALSE` only `<id>.rds` is written. It has no `top`, and
+`settings$grid` is `FALSE`. Its `validation` also holds `p_colsums`, the column
+sums of the evaluation p-values, which `bench_save_solution()` uses to check
+that it still reproduces the same simulations.
 
 `top` is the union of the top `top_n` graphs of every metric, with one row per
 graph and these columns:

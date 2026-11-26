@@ -42,15 +42,20 @@ therefore compare directly with the reference `_val` columns. The difference to
 the reference graph of the same metric is paired (same simulations), so its
 standard error shrinks as the two graphs get closer.
 
+**Scenarios without grid search** (`grid = FALSE`) have no reference graphs.
+`reference/<id>/<id>.rds` then holds only the settings and the evaluation
+simulations, and every solution is scored on them, so solutions compare
+directly with each other. `ref_val`, `diff_val` and `diff_se` are `NA`.
+
 `bench_save_solution()` stops if:
 
 - `reference/<id>/` is missing, was run with overrides or with `validate_n=0`, or
-  no longer matches `scenarios/<id>.R` (alpha, `mp`, `corr`, constraints or
-  metric definitions);
+  no longer matches `scenarios/<id>.R` (alpha, `mp`, `corr`, constraints,
+  `grid` or metric definitions);
 - a graph is invalid for graphicalMCP, or breaks the scenario's `w_fixed` /
   `G_fixed`;
-- the reference values cannot be reproduced (e.g. graphicalMCP changed its
-  simulation).
+- the reference values (or, with `grid = FALSE`, the simulated p-values) cannot
+  be reproduced (e.g. graphicalMCP changed its simulation).
 
 It writes two files:
 
@@ -61,6 +66,7 @@ It writes two files:
   - `<m>_val` and `<m>_se` for every metric `m`;
   - `ref_val`, the reference graph's value on that metric;
   - `diff_val` and `diff_se`, the solution minus the reference (paired);
+    all three are `NA` with `grid = FALSE`;
   - `time_s`;
   - `G`, column-major at full precision.
 

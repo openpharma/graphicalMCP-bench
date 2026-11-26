@@ -148,6 +148,20 @@ compositions <- function(parts, m) {
     cbind(v, compositions(parts - 1L, m - v), deparse.level = 0)))
 }
 
+#' Fixed entries of a weight vector or transition row must lie in [0, 1] and
+#' sum to at most 1.
+#'
+#' @param fixed numeric vector; NA = free, a number = fixed to that value
+#' @param label name used in error messages
+check_fixed <- function(fixed, label = "fixed") {
+  val <- fixed[!is.na(fixed)]
+  if (any(val < 0 | val > 1) || sum(val) > 1 + 1e-9) {
+    stop(label, ": fixed entries must lie in [0, 1] and sum to at most 1; got ",
+         paste(fixed, collapse = ", "), ".")
+  }
+  invisible(fixed)
+}
+
 #' Validated description of a simplex grid with some coordinates fixed.
 #'
 #' @param fixed numeric vector; NA = free, a number = fixed to that value
@@ -160,13 +174,9 @@ simplex_spec <- function(fixed, step, label = "fixed") {
   if (abs(m * step - 1) > 1e-9) {
     stop("1/step must be an integer for a simplex grid (got step = ", step, ").")
   }
+  check_fixed(fixed, label)
   free <- is.na(fixed)
-  val  <- fixed[!free]
-  rest <- 1 - sum(val)
-  if (any(val < 0 | val > 1) || rest < -1e-9) {
-    stop(label, ": fixed entries must lie in [0, 1] and sum to at most 1; got ",
-         paste(fixed, collapse = ", "), ".")
-  }
+  rest <- 1 - sum(fixed[!free])
   n_rest <- round(rest * m)
   if (any(free) && abs(n_rest / m - rest) > 1e-9) {
     stop(sprintf("%s: the free entries share 1 - %g = %g, which is not a multiple of step %g.",

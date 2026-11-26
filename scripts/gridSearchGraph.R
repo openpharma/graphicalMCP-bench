@@ -21,7 +21,9 @@
 #     Rscript scripts/gridSearchGraph.R scenario=<id> [key=value ...]
 #     Rscript scripts/gridSearchGraph.R <mp_1> <mp_2> <mp_3> [key=value ...]
 #   scenario=<id> loads scenarios/<id>.R (see scenarios/_template.R), writes
-#   reference/<id>/ and docs/scenarios/<id>.md. Without it, positional numeric
+#   reference/<id>/ and docs/scenarios/<id>.md. A scenario with grid = FALSE
+#   is not searched: only its settings and evaluation simulations are written,
+#   for scoring optimizer solutions. Without scenario=, positional numeric
 #   args are the marginal powers (their count defines k):
 #     Rscript scripts/gridSearchGraph.R 0.90 0.80 0.70 sim_n=10000
 #   Optional key=value overrides: alpha, corr, sim_n, w_step, g_step, w_fixed,
