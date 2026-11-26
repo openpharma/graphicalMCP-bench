@@ -597,26 +597,44 @@ grid_search_k <- function(p, alpha, w_step, g_step, top_n, cl = NULL,
 #' Combine the shard results of one search into the full result.
 #'
 #' Exact: each shard keeps its top_n per metric, so the union over shards
-#' contains the global top_n of every metric.
+#' contains the global top_n of every metric. Shards are folded in one at a
+#' time, as in search_chunk(), so with file paths only one shard is in memory.
 #'
-#' @param parts list of grid_search_k() results with identical settings
+#' @param parts shards 1..N of one search, in order: a list of grid_search_k()
+#'   results with identical settings, or a character vector of .rds paths
+#'   holding them
 merge_results <- function(parts) {
-  s  <- parts[[1]]$settings
-  nm <- parts[[1]]$metrics
-  for (x in parts[-1]) {
-    if (!identical(x$settings, s) || !identical(x$metrics, nm)) {
-      stop("Shards were run with different settings or metrics; cannot merge.")
+  n    <- length(parts)
+  cand <- NULL
+  n_candidates <- search_s <- vector("list", n)
+  for (i in seq_len(n)) {
+    x    <- parts[[i]]
+    what <- if (is.character(x)) basename(x) else sprintf("part %d", i)
+    if (is.character(x)) x <- readRDS(x)
+    if (i == 1L) {
+      s  <- x$settings
+      nm <- x$metrics
+      k  <- x$k
+    } else if (!identical(x$settings, s) || !identical(x$metrics, nm)) {
+      stop("Shards were run with different settings or metrics; cannot merge (",
+           what, ").")
     }
+    if (!is.null(x$shard) && !identical(as.integer(x$shard), c(i, n))) {
+      stop(sprintf("%s holds shard %s, expected %d/%d.", what,
+                   paste(x$shard, collapse = "/"), i, n))
+    }
+    cand <- top_union(rbind(cand, x$cand), nm, s$top_n)
+    n_candidates[[i]] <- x$n_candidates
+    search_s[[i]]     <- x$search_s
+    rm(x)
   }
-  k     <- parts[[1]]$k
-  cand  <- top_union(do.call(rbind, lapply(parts, `[[`, "cand")), nm, s$top_n)
   grids <- build_grids(k, s$w_step, s$g_step, s$w_fixed, s$G_fixed)
   list(top = assemble_top(cand, grids$W, grids$G_rows, nm, s$top_n), k = k,
        metrics = nm,
-       n_candidates = sum(unlist(lapply(parts, `[[`, "n_candidates"))),
+       n_candidates = sum(unlist(n_candidates)),
        cand = cand, settings = s, shard = NULL,
-       search_s = sum(unlist(lapply(parts, `[[`, "search_s"))),
-       n_shards = length(parts))
+       search_s = sum(unlist(search_s)),
+       n_shards = n)
 }
 
 

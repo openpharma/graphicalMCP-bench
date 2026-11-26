@@ -65,10 +65,11 @@ bench_config <- function(...) {
     stem_prefix    = "gridSearch",
 
     ## -- Job arrays -----------------------------------------------------------
-    # c(i, N): search only shard i of N and write it to <out_dir>/shards/
-    # (results/shards/ for scenarios).
+    # c(i, N): search only shard i of N and write it to <out_dir>/<stem>/shards/
+    # (results/<id>/shards/ for scenarios).
     shard          = NULL,
-    # N: merge shards 1..N of the same run into the final result (no search).
+    # N: merge shards 1..N of the same run into the final result (no search),
+    # written to <out_dir>/<stem>/ (reference/<id>/ for scenarios).
     merge_shards   = NULL,
 
     ## -- Safety gate for large k ----------------------------------------------
@@ -589,16 +590,19 @@ shard_file <- function(shard_dir, stem, i, n) {
   file.path(shard_dir, sprintf("%s_shard%dof%d.rds", stem, i, n))
 }
 
-#' Load shards 1..n of a run and merge them into the full result.
+#' Merge shards 1..n of a run into the full result.
+#'
+#' The shard files are read one at a time (see merge_results()), so memory
+#' does not grow with n.
 merge_shards <- function(shard_dir, stem, n) {
   if (n < 1L) stop("merge_shards must be >= 1.")
   files <- shard_file(shard_dir, stem, seq_len(n), n)
   miss  <- which(!file.exists(files))
   if (length(miss)) {
-    stop(sprintf("Missing %d of %d shard(s) for %s: %s", length(miss), n, stem,
-                 paste(miss, collapse = ", ")))
+    stop(sprintf("Missing %d of %d shard(s) for %s in %s: %s", length(miss), n,
+                 stem, shard_dir, paste(miss, collapse = ", ")))
   }
-  res <- merge_results(lapply(files, readRDS))
+  res <- merge_results(files)
   cat(sprintf("[k=%d] merged %d shards from %s\n", res$k, n, shard_dir))
   res
 }
@@ -607,8 +611,10 @@ merge_shards <- function(shard_dir, stem, n) {
 #' Run the grid search for every k in the config.
 #'
 #' With cfg$shard set, only that shard is searched and written to
-#' <out_dir>/shards/ (results/shards/ for scenarios); with cfg$merge_shards set,
-#' existing shards are merged instead of searching.
+#' <out_dir>/<stem>/shards/ (results/<id>/shards/ for scenarios); with
+#' cfg$merge_shards set, existing shards are merged instead of searching and
+#' the result is written to <out_dir>/<stem>/ (reference/<id>/ for scenarios).
+#' Runs without either write to <out_dir>/ directly.
 #'
 #' @param cfg config list from bench_config() / bench_parse_cli()
 #' @return invisibly, a named list of results per k
@@ -630,9 +636,9 @@ bench_main <- function(cfg) {
   if (!isTRUE(grepl("^(/|\\\\|[A-Za-z]:)", out_dir))) {
     out_dir <- file.path(bench_root(), out_dir)
   }
+  array_run <- merging || !is.null(cfg$shard)
   # Scenario shards are local scratch, so they stay out of reference/.
-  shard_root <- if (is.null(cfg$scenario)) out_dir else file.path(bench_root(), "results")
-  shard_dir  <- file.path(shard_root, "shards")
+  run_root  <- if (is.null(cfg$scenario)) out_dir else file.path(bench_root(), "results")
 
   cl <- if (merging) NULL else make_cluster(cfg$max_workers)
   if (!is.null(cl)) on.exit(parallel::stopCluster(cl), add = TRUE)
@@ -654,6 +660,11 @@ bench_main <- function(cfg) {
     if (!is.null(cfg$w_fixed)) tag <- paste0(tag, "_fixedw")
     if (!is.null(cfg$G_fixed)) tag <- paste0(tag, "_fixedg")
     stem <- if (is.null(cfg$scenario)) bench_stem(cfg$stem_prefix, k, tag) else cfg$scenario$id
+    # Job arrays keep each run in its own folder: <run_root>/<stem>/shards/
+    # for the shards and, for ad-hoc runs, <run_root>/<stem>/ for the merge.
+    run_dir   <- file.path(run_root, stem)
+    shard_dir <- file.path(run_dir, "shards")
+    save_dir  <- if (array_run && is.null(cfg$scenario)) run_dir else out_dir
 
     if (merging) {
       res  <- merge_shards(shard_dir, stem, cfg$merge_shards)
@@ -712,9 +723,9 @@ bench_main <- function(cfg) {
     results[[key]] <- res
 
     if (cfg$save_results) {
-      save_best(res, out_dir, stem)
+      save_best(res, save_dir, stem)
       cat(sprintf("[k=%d] results written to %s.rds / _top.csv / _best.csv\n",
-                  k, file.path(out_dir, stem)))
+                  k, file.path(save_dir, stem)))
       if (!is.null(cfg$scenario) &&
           identical(cfg$out_dir, file.path("reference", cfg$scenario$id))) {
         bench_render_docs(cfg$scenario$id)

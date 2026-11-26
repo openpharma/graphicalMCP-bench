@@ -15,6 +15,7 @@
 #     N_SHARDS=32 CORES=2 PARTITION=short bash cluster/slurm/submit_array.sh
 #     MAX_RUNNING=4 bash cluster/slurm/submit_array.sh                  # at most 4 tasks at once
 #     WALLTIME=00:20:00 MERGE_WALLTIME=00:15:00 bash cluster/slurm/submit_array.sh
+#     SHARD_MEM=8000 MERGE_MEM=4000 bash cluster/slurm/submit_array.sh  # MB per task / merge
 #
 # There is no node count: each task takes CORES cores on one node and Slurm
 # places the tasks; MAX_RUNNING caps how many run at the same time.
@@ -22,10 +23,14 @@
 # ignored. Otherwise positional numbers replace MP. key=value arguments
 # override ARGS / the scenario for both the shards and the merge (last value
 # wins; values must not contain spaces). WALLTIME / MERGE_WALLTIME set the time
-# limits; account, memory, ... can be overridden with SBATCH_* environment
-# variables.
-# Shards go to <out_dir>/shards/ (results/shards/ for a scenario), the merged
-# result to <out_dir>/ under the same name as a single run.
+# limits and SHARD_MEM / MERGE_MEM the memory (MB per task, all its cores, and
+# MB for the merge; take them from the smoke=TRUE estimate plus a margin);
+# account, ... can be overridden with SBATCH_* environment variables.
+# Each run gets its own folder: shards go to <out_dir>/<stem>/shards/ and the
+# merged result to <out_dir>/<stem>/ (<stem> as in a single run, e.g.
+# gridSearch_k4_mp90_80_70_60). For a scenario, shards go to
+# results/<id>/shards/ and the merged result to reference/<id>/.
+# If any task fails, the merge job is cancelled automatically.
 # =============================================================================
 
 set -euo pipefail
@@ -42,6 +47,8 @@ ARRAY="${ARRAY:-1-${N_SHARDS}}"
 MAX_RUNNING="${MAX_RUNNING:-}"     # empty = no limit
 WALLTIME="${WALLTIME:-08:00:00}"   # [D-]HH:MM:SS per task
 MERGE_WALLTIME="${MERGE_WALLTIME:-08:00:00}"
+SHARD_MEM="${SHARD_MEM:-$((CORES * 1000))}"   # MB per task (all CORES together)
+MERGE_MEM="${MERGE_MEM:-2000}"                # MB for the merge (incl. validation)
 source "$(dirname "${BASH_SOURCE[0]}")/../args.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -57,7 +64,7 @@ ARRAY_ID=$(sbatch --parsable ${PARTITION:+--partition=$PARTITION} <<EOF
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=${CORES}
-#SBATCH --mem-per-cpu=1000
+#SBATCH --mem=${SHARD_MEM}
 #SBATCH --time=${WALLTIME}
 #SBATCH --output=logs/${NAME}.%A_%a.out
 #SBATCH --error=logs/${NAME}.%A_%a.err
@@ -72,11 +79,14 @@ EOF
 )
 ARRAY_ID="${ARRAY_ID%%;*}"
 
-MERGE_ID=$(sbatch --parsable ${PARTITION:+--partition=$PARTITION} --dependency=afterok:${ARRAY_ID} <<EOF
+# --kill-on-invalid-dep: cancel the merge when a task fails, instead of leaving
+# it pending forever with reason DependencyNeverSatisfied.
+MERGE_ID=$(sbatch --parsable ${PARTITION:+--partition=$PARTITION} \
+  --dependency=afterok:${ARRAY_ID} --kill-on-invalid-dep=yes <<EOF
 #!/bin/bash
 #SBATCH --job-name=${NAME}_merge
 #SBATCH --ntasks=1
-#SBATCH --mem=2000
+#SBATCH --mem=${MERGE_MEM}
 #SBATCH --time=${MERGE_WALLTIME}
 #SBATCH --output=logs/${NAME}_merge.%j.out
 #SBATCH --error=logs/${NAME}_merge.%j.err
@@ -93,6 +103,10 @@ EOF
 echo "Submitted array job ${ARRAY_ID} (tasks ${ARRAY} of ${N_SHARDS}) and merge job ${MERGE_ID%%;*}."
 
 # Notes:
-# - The merge only starts if every task in this submission succeeds. If some
-#   fail, re-run just those (ARRAY=3,7 bash ...), which also submits a new merge;
-#   then scancel the old, never-starting merge job.
+# - The merge only starts if every task in this submission succeeds; if one
+#   fails (error, time or memory limit), Slurm cancels the merge. Find the
+#   failed tasks and their peak memory with
+#       sacct -j <array id> --format=JobID,State,ExitCode,Elapsed,MaxRSS
+#   then re-run just those (ARRAY=3,7 bash ..., raise WALLTIME / SHARD_MEM if
+#   needed), which also submits a new merge. The merge checks that all
+#   N_SHARDS shard files exist, so earlier successful shards are reused.

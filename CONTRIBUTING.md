@@ -23,7 +23,8 @@ correlation, metrics and optional constraints. Each scenario is one R file in
    size of the full grid with its estimated CPU time, memory and wall time for
    the default cluster settings. Check that the run is feasible (see
    *Feasibility* in the [README](README.md)) and use the numbers to set
-   `WALLTIME`, `CORES` and `N_SHARDS` for the cluster scripts.
+   `WALLTIME`, `CORES` and `N_SHARDS` for the cluster scripts, and `SHARD_MEM` /
+   `MERGE_MEM` (MB, plus a margin) for `submit_array.sh`.
 4. **Full run** with no extra `key=value` overrides, locally or on a cluster:
 
    ```sh
