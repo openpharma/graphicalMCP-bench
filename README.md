@@ -13,6 +13,34 @@ may beat it.
 
 The results of all scenarios are in the [scenario index](docs/README.md).
 
+## How it works
+
+```mermaid
+flowchart LR
+    S["<b>Scenario</b><br/>scenarios/#lt;id#gt;.R<br/>alpha, marginal powers,<br/>correlation, metrics"]
+
+    subgraph RUN["Run in parallel"]
+        direction TB
+        G["<b>Grid search</b><br/>scripts/gridSearchGraph.R<br/>→ reference/#lt;id#gt;/"]
+        O["<b>Optimizer</b><br/>optimizer/#lt;method#gt;/<br/>one graph per metric"]
+    end
+
+    C["<b>Comparison</b><br/>bench_save_solution()<br/>same simulations as reference<br/>→ solutions/#lt;id#gt;/"]
+    D["<b>Docs</b><br/>docs/scenarios/#lt;id#gt;.md"]
+
+    S --> G
+    S --> O
+    G --> C
+    O --> C
+    G --> D
+    C -. planned .-> D
+```
+
+The grid search and the optimizers start from the same scenario and run
+independently. The comparison scores each optimizer's graphs on the same
+simulations as the reference. The scenario pages show the reference results;
+adding the optimizer solutions to them is planned.
+
 ## Requirements
 
 R with the `graphicalMCP` and `parallelly` packages. On a cluster, the packages
