@@ -522,11 +522,11 @@ smoke_test <- function(cfg, n_g = 10L, n_w = 200L, n_val = 5L,
       sim_s <- since(t0)
       idx   <- rep_len(seq_len(min(s_w, s_g)), min(n_val, n_keep))
       kept  <- list(k = k, metrics = names(metrics),
-                    best = data.frame(smp$W[idx, , drop = FALSE]))
-      kept$best[names(metrics)] <- NA_real_
-      kept$best$G <- Gs[idx]
+                    top = data.frame(smp$W[idx, , drop = FALSE]))
+      kept$top[names(metrics)] <- NA_real_
+      kept$top$G <- Gs[idx]
       t0 <- Sys.time()
-      validate_best(kept, p_val, cfg$alpha, metrics)
+      validate_top(kept, p_val, cfg$alpha, metrics)
       val_s  <- sim_s + n_keep * since(t0) / length(idx)
       heap_v <- heap_mb("max used")
       rm(p_val)
@@ -702,7 +702,7 @@ bench_main <- function(cfg) {
       v_seed <- if (is.null(cfg$validate_seed)) s$seed + 1L else cfg$validate_seed
       if (v_seed == s$seed) stop("validate_seed must differ from seed.")
       p_val <- simulate_pvalues(k, s$alpha, s$mp, cfg$validate_n, v_seed, s$corr)
-      res   <- validate_best(res, p_val, s$alpha, metrics)
+      res   <- validate_top(res, p_val, s$alpha, metrics)
       res$validation$seed <- v_seed
       cat(sprintf("[k=%d] kept graphs re-evaluated on %s simulations (seed %d)\n",
                   k, format(cfg$validate_n, big.mark = ",", scientific = FALSE),

@@ -486,20 +486,20 @@ grid_sample <- function(k, w_step, g_step, n_w, n_g, w_fixed = NULL,
 #'
 #' @return data.frame: w1..wk, one column per metric, g_id, rank_<metric>
 #'   (NA outside that metric's top_n) and G; sorted by the first metric.
-assemble_best <- function(cand, W, G_rows, metric_names, top_n) {
+assemble_top <- function(cand, W, G_rows, metric_names, top_n) {
   nm   <- metric_names
-  best <- data.frame(W[cand[, "w_id"], , drop = FALSE],
-                     cand[, nm, drop = FALSE],
-                     g_id = cand[, "g_id"], row.names = NULL)
+  top <- data.frame(W[cand[, "w_id"], , drop = FALSE],
+                    cand[, nm, drop = FALSE],
+                    g_id = cand[, "g_id"], row.names = NULL)
   for (x in nm) {
     r <- head(rank_order(cand, x, nm), top_n)
-    best[[paste0("rank_", x)]] <- NA_integer_
-    best[[paste0("rank_", x)]][r] <- seq_along(r)
+    top[[paste0("rank_", x)]] <- NA_integer_
+    top[[paste0("rank_", x)]][r] <- seq_along(r)
   }
-  best$G <- lapply(best$g_id, transition_matrix, G_rows = G_rows)
-  best <- best[rank_order(cand, nm[1], nm), ]
-  rownames(best) <- NULL
-  best
+  top$G <- lapply(top$g_id, transition_matrix, G_rows = G_rows)
+  top <- top[rank_order(cand, nm[1], nm), ]
+  rownames(top) <- NULL
+  top
 }
 
 #' Grid-search the best graphs for every metric at once.
@@ -514,9 +514,9 @@ assemble_best <- function(cand, W, G_rows, metric_names, top_n) {
 #' @param w_fixed,G_fixed optional fixed-entry constraints; see build_grids()
 #' @param shard optional c(i, N): search only every N-th transition matrix
 #'   starting at i (job arrays); combine shards with merge_results().
-#' @return list(best, k, metrics = metric names, n_candidates (evaluated here),
-#'   cand = candidate matrix, settings, shard, search_s); see assemble_best()
-#'   for best.
+#' @return list(top, k, metrics = metric names, n_candidates (evaluated here),
+#'   cand = candidate matrix, settings, shard, search_s); see assemble_top()
+#'   for top.
 grid_search_k <- function(p, alpha, w_step, g_step, top_n, cl = NULL,
                           allow_large_k = FALSE, max_candidates = 1e8,
                           w_fixed = NULL, metrics = BENCH_METRICS,
@@ -586,7 +586,7 @@ grid_search_k <- function(p, alpha, w_step, g_step, top_n, cl = NULL,
   cat(sprintf("[k=%d] search time: %.1f s\n", k, search_s))
 
   cand <- top_union(do.call(rbind, parts), nm, top_n)
-  list(best = assemble_best(cand, W, G_rows, nm, top_n), k = k, metrics = nm,
+  list(top = assemble_top(cand, W, G_rows, nm, top_n), k = k, metrics = nm,
        n_candidates = nrow(W) * length(g_ids), cand = cand,
        settings = list(alpha = alpha, sim_n = nrow(p), w_step = w_step,
                        g_step = g_step, w_fixed = w_fixed, G_fixed = G_fixed,
@@ -611,7 +611,7 @@ merge_results <- function(parts) {
   k     <- parts[[1]]$k
   cand  <- top_union(do.call(rbind, lapply(parts, `[[`, "cand")), nm, s$top_n)
   grids <- build_grids(k, s$w_step, s$g_step, s$w_fixed, s$G_fixed)
-  list(best = assemble_best(cand, grids$W, grids$G_rows, nm, s$top_n), k = k,
+  list(top = assemble_top(cand, grids$W, grids$G_rows, nm, s$top_n), k = k,
        metrics = nm,
        n_candidates = sum(unlist(lapply(parts, `[[`, "n_candidates"))),
        cand = cand, settings = s, shard = NULL,
@@ -634,15 +634,15 @@ merge_results <- function(parts) {
 #' @param p_val p-values from simulate_pvalues() with a different seed
 #' @param metrics named list of metric functions (those in res$metrics are used)
 #' @param n_batch number of batches for the standard errors
-#' @return res with <metric>_val / <metric>_se columns in res$best
-validate_best <- function(res, p_val, alpha, metrics, n_batch = 20L) {
+#' @return res with <metric>_val / <metric>_se columns in res$top
+validate_top <- function(res, p_val, alpha, metrics, n_batch = 20L) {
   nm      <- res$metrics
   metrics <- metrics[nm]
   n       <- nrow(p_val)
   batches <- split(seq_len(n), ceiling(seq_len(n) * n_batch / n))
-  W       <- as.matrix(res$best[paste0("w", seq_len(res$k))])
+  W       <- as.matrix(res$top[paste0("w", seq_len(res$k))])
   vals <- vapply(seq_len(nrow(W)), function(i) {
-    R    <- graph_rejections(W[i, ], res$best$G[[i]], p_val, alpha)
+    R    <- graph_rejections(W[i, ], res$top$G[[i]], p_val, alpha)
     by_b <- vapply(batches, function(r) {
       Rb <- R[r, , drop = FALSE]
       vapply(metrics, function(f) f(Rb), numeric(1))
@@ -651,14 +651,14 @@ validate_best <- function(res, p_val, alpha, metrics, n_batch = 20L) {
       apply(matrix(by_b, length(nm)), 1, stats::sd) / sqrt(n_batch))
   }, numeric(2L * length(nm)))
 
-  best <- res$best
+  top <- res$top
   for (j in seq_along(nm)) {
-    best[[paste0(nm[j], "_val")]] <- vals[j, ]
-    best[[paste0(nm[j], "_se")]]  <- vals[length(nm) + j, ]
+    top[[paste0(nm[j], "_val")]] <- vals[j, ]
+    top[[paste0(nm[j], "_se")]]  <- vals[length(nm) + j, ]
   }
   lead <- c(paste0("w", seq_len(res$k)),
             as.vector(rbind(nm, paste0(nm, "_val"), paste0(nm, "_se"))))
-  res$best <- best[c(lead, setdiff(names(best), lead))]
+  res$top <- top[c(lead, setdiff(names(top), lead))]
   res$validation <- list(sim_n = n, n_batch = n_batch)
   res
 }
@@ -671,12 +671,12 @@ validate_best <- function(res, p_val, alpha, metrics, n_batch = 20L) {
 #' One row per metric: the graph ranked first for that metric.
 #'
 #' @return data.frame with a leading `metric` column and the columns of
-#'   res$best except g_id and rank_*
+#'   res$top except g_id and rank_*
 best_per_metric <- function(res) {
   rows <- vapply(res$metrics, function(x)
-    which(res$best[[paste0("rank_", x)]] == 1L), integer(1))
-  keep <- setdiff(names(res$best), c("g_id", paste0("rank_", res$metrics)))
-  out  <- res$best[rows, keep, drop = FALSE]
+    which(res$top[[paste0("rank_", x)]] == 1L), integer(1))
+  keep <- setdiff(names(res$top), c("g_id", paste0("rank_", res$metrics)))
+  out  <- res$top[rows, keep, drop = FALSE]
   out$metric <- res$metrics
   out <- out[c("metric", keep)]
   rownames(out) <- NULL
@@ -694,18 +694,18 @@ report_best <- function(res) {
   cat(sprintf("\n==== k = %d : best graph per metric (%s candidates) ====\n",
               res$k, format(res$n_candidates, big.mark = ",")))
   for (x in res$metrics) {
-    i <- which(res$best[[paste0("rank_", x)]] == 1L)
+    i <- which(res$top[[paste0("rank_", x)]] == 1L)
     cat(sprintf("\n-- %s-optimal --\n", x))
-    print(round(unlist(res$best[i, res$metrics, drop = FALSE]), 5))
+    print(round(unlist(res$top[i, res$metrics, drop = FALSE]), 5))
     if (!is.null(res$validation)) {
       cat(sprintf("Re-evaluated on %s independent simulations (value, SE):\n",
                   format(res$validation$sim_n, big.mark = ",")))
       print(round(rbind(
-        value = unlist(res$best[i, paste0(res$metrics, "_val")]),
-        se    = unlist(res$best[i, paste0(res$metrics, "_se")])), 5))
+        value = unlist(res$top[i, paste0(res$metrics, "_val")]),
+        se    = unlist(res$top[i, paste0(res$metrics, "_se")])), 5))
     }
-    cat("Hypothesis weights w:\n"); print(round(unlist(res$best[i, w_cols]), 4))
-    cat("Transition matrix G:\n");  print(round(res$best$G[[i]], 4))
+    cat("Hypothesis weights w:\n"); print(round(unlist(res$top[i, w_cols]), 4))
+    cat("Transition matrix G:\n");  print(round(res$top$G[[i]], 4))
   }
 }
 
@@ -724,7 +724,7 @@ bench_stem <- function(stem_prefix, k, tag = "") {
 save_best <- function(res, out_dir, stem) {
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
   saveRDS(res, file.path(out_dir, paste0(stem, ".rds")))
-  flat <- res$best
+  flat <- res$top
   flat$G <- vapply(flat$G, g_string, character(1))
   utils::write.csv(flat, file.path(out_dir, paste0(stem, "_top.csv")),
                    row.names = FALSE)

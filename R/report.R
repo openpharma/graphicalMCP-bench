@@ -68,7 +68,7 @@ metric_est <- function(res, df, x) {
 #'   ties = group sizes as text, "n+" when the group may extend past top_n)
 ranked_groups <- function(res, x) {
   nm  <- res$metrics
-  r   <- res$best[order(res$best[[paste0("rank_", x)]], na.last = NA), , drop = FALSE]
+  r   <- res$top[order(res$top[[paste0("rank_", x)]], na.last = NA), , drop = FALSE]
   key <- do.call(paste, c(lapply(r[nm], function(z) sprintf("%.12g", z)), sep = "|"))
   grp <- cumsum(c(TRUE, key[-1] != key[-length(key)]))
   n   <- tabulate(grp)
