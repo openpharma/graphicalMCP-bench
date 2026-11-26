@@ -3,13 +3,13 @@
 # Grid search for the best graphs under several metrics at once
 # =============================================================================
 #
-# Brute-force grid search over multiplicity graphs (w, G) for k hypotheses
-# (independent or correlated). Every candidate is run through the
-# sequentially-rejective weighted-Bonferroni graphical procedure on one shared
-# matrix of simulated p-values, and ALL metrics are evaluated on the same
-# rejections. The top_n graphs per metric are kept and re-evaluated on
-# independent p-values. See R/gridCore.R for the search machinery and the
-# feasibility warning about k > 3.
+# Brute-force grid search over the graphs (w, G) of the graphical approach in
+# multiple testing, for k hypotheses (independent or correlated). Every
+# candidate is run through the sequentially-rejective weighted-Bonferroni
+# graphical procedure on one shared matrix of simulated p-values, and ALL
+# metrics are evaluated on the same rejections. The top_n graphs per metric are
+# kept and re-evaluated on independent p-values. See R/gridCore.R for the search
+# machinery and the feasibility warning about k > 3.
 #
 # METRICS  (function(R) -> number to maximize; R = sim_n x k logical rejections)
 #   er  expected number of rejections

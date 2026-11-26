@@ -1,5 +1,5 @@
 # =============================================================================
-# Brute-force grid search over multiplicity graphs -- shared core
+# Brute-force grid search for the graphical approach -- shared core
 # =============================================================================
 #
 # A graph is (w, G): initial hypothesis weights w (sum to 1) and a row-stochastic

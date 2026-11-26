@@ -11,7 +11,8 @@ correlation, metrics and optional constraints. Each scenario is one R file in
 2. **Create the file:** copy `scenarios/_template.R` to `scenarios/<id>.R`.
    `<id>` uses lowercase letters, digits and `_` (e.g. `onco_dose_k3`) and must
    be new. Fill in `title`, `author`, `date`, `description`, `alpha` and `mp`,
-   then `corr`, `metrics` and constraints as needed. Delete fields you leave at
+   then `corr`, `metrics` and constraints as needed (see
+   [scenarios/README.md](scenarios/README.md)). Delete fields you leave at
    their defaults.
 3. **Smoke test** (seconds, nothing written):
 
@@ -21,10 +22,10 @@ correlation, metrics and optional constraints. Each scenario is one R file in
 
    It runs the checks on a random sample of the scenario's grid and prints the
    size of the full grid with its estimated CPU time, memory and wall time for
-   the default cluster settings. Check that the run is feasible (see
-   *Feasibility* in the [README](README.md)) and use the numbers to set
-   `WALLTIME`, `CORES` and `N_SHARDS` for the cluster scripts, and `SHARD_MEM` /
-   `MERGE_MEM` (MB, plus a margin) for `submit_array.sh`.
+   the default cluster settings. Check that the run is feasible and use the
+   numbers to set `WALLTIME`, `CORES` and `N_SHARDS` for the cluster scripts,
+   and `SHARD_MEM` / `MERGE_MEM` (MB, plus a margin) for `submit_array.sh`
+   (see the [cluster guide](cluster/README.md)).
 4. **Full run** with no extra `key=value` overrides, locally or on a cluster:
 
    ```sh
@@ -63,7 +64,7 @@ a scenario, scored on the same simulations as the scenario's reference.
 1. **Branch:** `git switch -c solution/<method>`.
 2. **Method folder:** put the code in `optimizer/<method>/` with a `README.md`
    (method, origin, limits, requirements) and add a row to the *Optimizers*
-   table in the [README](README.md#optimizers). Skip this if the folder exists.
+   table in [optimizer/README.md](optimizer/README.md). Skip this if the folder exists.
 3. **Run and save** for each scenario, with the scenario's settings
    (`bench_load_scenario(bench_config(), "<id>")`):
 
@@ -73,7 +74,7 @@ a scenario, scored on the same simulations as the scenario's reference.
      time_s = c(er = ...))
    ```
 
-   See *Solutions* in the [README](README.md#solutions). It writes
+   See *Solutions* in [optimizer/README.md](optimizer/README.md#solutions). It writes
    `solutions/<id>/<method>.rds` and `<method>_best.csv`, and stops if the
    reference is missing or out of date.
 4. **Commit** and open a merge request:

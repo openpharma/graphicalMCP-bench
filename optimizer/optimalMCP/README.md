@@ -62,7 +62,7 @@ opt$w
 ```
 
 To score it against a scenario's reference and save it to `solutions/<id>/` (see
-*Solutions* in the [README](../../README.md#solutions)), with `G = 0` because the method
+*Solutions* in the [optimizer README](../README.md#solutions)), with `G = 0` because the method
 has no transitions:
 
 ```r
